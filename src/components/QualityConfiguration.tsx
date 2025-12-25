@@ -62,7 +62,7 @@ export default function QualityConfiguration({
   async function loadDimensions() {
     try {
       const { data: dimData, error } = await supabase
-        .from('quality_dimensions')
+        .from('quality_dimension_config')
         .select('*')
         .eq('is_active', true)
         .order('display_order', { ascending: true });
@@ -87,7 +87,7 @@ export default function QualityConfiguration({
   async function loadTemplates() {
     try {
       const { data, error } = await supabase
-        .from('quality_templates')
+        .from('templates')
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -122,11 +122,10 @@ export default function QualityConfiguration({
       };
 
       const { error } = await supabase
-        .from('quality_templates')
+        .from('templates')
         .insert({
           name: templateName,
-          description: templateDescription,
-          template_data: templateData,
+          rules: templateData,
         });
 
       if (error) throw error;
@@ -150,7 +149,7 @@ export default function QualityConfiguration({
       const template = templates.find((t) => t.id === templateId);
       if (!template) return;
 
-      const templateData = template.template_data;
+      const templateData = template.rules;
       if (templateData.dimensionRules) {
         setDimensionRules(templateData.dimensionRules);
       }

@@ -25,7 +25,7 @@ export default function DimensionConfig() {
   async function loadDimensions() {
     try {
       const { data, error } = await supabase
-        .from('quality_dimensions')
+        .from('quality_dimension_config')
         .select('*')
         .order('display_order', { ascending: true });
 
@@ -48,7 +48,7 @@ export default function DimensionConfig() {
     try {
       if (editingId) {
         const { error } = await supabase
-          .from('quality_dimensions')
+          .from('quality_dimension_config')
           .update({
             ...formData,
             updated_at: new Date().toISOString(),
@@ -58,7 +58,7 @@ export default function DimensionConfig() {
         if (error) throw error;
       } else {
         const { error } = await supabase
-          .from('quality_dimensions')
+          .from('quality_dimension_config')
           .insert([{
             ...formData,
             color: '#14b8a6',
@@ -91,7 +91,7 @@ export default function DimensionConfig() {
 
     try {
       const { error } = await supabase
-        .from('quality_dimensions')
+        .from('quality_dimension_config')
         .delete()
         .eq('id', id);
 
@@ -106,7 +106,7 @@ export default function DimensionConfig() {
   async function handleToggleActive(dimension: QualityDimensionConfig) {
     try {
       const { error } = await supabase
-        .from('quality_dimensions')
+        .from('quality_dimension_config')
         .update({
           is_active: !dimension.is_active,
           updated_at: new Date().toISOString(),
