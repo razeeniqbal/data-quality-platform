@@ -114,6 +114,12 @@ export default function QualityConfiguration({
 
     setIsSavingTemplate(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert('You must be logged in to save templates');
+        return;
+      }
+
       const templateData = {
         dimensionRules,
         configuredColumns: Object.fromEntries(
@@ -126,6 +132,7 @@ export default function QualityConfiguration({
         .insert({
           name: templateName,
           rules: templateData,
+          user_id: user.id,
         });
 
       if (error) throw error;

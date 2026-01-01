@@ -12,7 +12,7 @@ interface DimensionConfigModalProps {
     config_data: Record<string, any>;
     is_configured: boolean;
   };
-  onSave: (config: Record<string, any>, referenceFile?: File) => void;
+  onSave: (config: Record<string, any>, referenceFile?: File) => Promise<void>;
 }
 
 export default function DimensionConfigModal({
@@ -36,8 +36,8 @@ export default function DimensionConfigModal({
 
   if (!isOpen) return null;
 
-  function handleSave() {
-    onSave(config, referenceFile || undefined);
+  async function handleSave() {
+    await onSave(config, referenceFile || undefined);
     onClose();
   }
 

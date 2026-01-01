@@ -118,9 +118,15 @@ export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps
 
       const projectName = file.name.replace(/\.csv$/i, '');
 
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { data: projectData, error: projectError } = await supabase
         .from('projects')
-        .insert({ name: projectName, description: `Imported from ${file.name}` })
+        .insert({
+          name: projectName,
+          description: `Imported from ${file.name}`,
+          owner_id: user?.id
+        })
         .select()
         .single();
 

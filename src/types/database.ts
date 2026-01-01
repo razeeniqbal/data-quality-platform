@@ -2,6 +2,7 @@ export interface Project {
   id: string;
   name: string;
   description: string;
+  owner_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +56,7 @@ export interface Template {
   id: string;
   name: string;
   rules: any[];
+  user_id: string;
   created_at: string;
 }
 
@@ -69,4 +71,25 @@ export interface QualityDimensionConfig {
   display_order: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  microsoft_tenant_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: 'owner' | 'editor' | 'viewer';
+  invited_by: string | null;
+  invited_at: string;
+  accepted_at: string | null;
+  created_at: string;
 }
