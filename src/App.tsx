@@ -5,9 +5,10 @@ import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import Score from './pages/Score';
 import DimensionConfig from './pages/DimensionConfig';
-import { LayoutGrid, Target, Network, Layers, Bell, AlertTriangle, Settings, LogOut } from 'lucide-react';
+import Records from './pages/Records';
+import { LayoutGrid, Target, Network, Layers, Bell, Settings, LogOut } from 'lucide-react';
 
-type Page = 'dashboard' | 'score' | 'config' | 'osdu' | 'upcoming';
+type Page = 'dashboard' | 'score' | 'config' | 'records' | 'osdu' | 'upcoming';
 
 function AppContent() {
   const { user, profile, loading, signOut } = useAuth();
@@ -21,6 +22,11 @@ function AppContent() {
   function navigateToScore(projectId?: string) {
     setSelectedProjectId(projectId || null);
     setCurrentPage('score');
+  }
+
+  function navigateToRecords(projectId: string) {
+    setSelectedProjectId(projectId);
+    setCurrentPage('records');
   }
 
   async function handleSignOut() {
@@ -79,9 +85,6 @@ function AppContent() {
                 <div className="text-xs text-teal-100">AEM ENERGY SOLUTION</div>
               </div>
               <div className="flex items-center space-x-3">
-                <button className="p-2 hover:bg-teal-600 rounded-lg transition">
-                  <AlertTriangle className="w-5 h-5" />
-                </button>
                 <button className="p-2 hover:bg-teal-600 rounded-lg transition">
                   <Bell className="w-5 h-5" />
                 </button>
@@ -194,9 +197,20 @@ function AppContent() {
       </nav>
 
       <main className="container mx-auto px-6 py-8 flex-1">
-        {currentPage === 'dashboard' && <Dashboard onNavigateToScore={navigateToScore} />}
+        {currentPage === 'dashboard' && (
+          <Dashboard
+            onNavigateToScore={navigateToScore}
+            onNavigateToRecords={navigateToRecords}
+          />
+        )}
         {currentPage === 'score' && <Score projectId={selectedProjectId} />}
         {currentPage === 'config' && <DimensionConfig />}
+        {currentPage === 'records' && selectedProjectId && (
+          <Records
+            projectId={selectedProjectId}
+            onBack={() => setCurrentPage('dashboard')}
+          />
+        )}
         {currentPage === 'osdu' && (
           <div className="text-center py-20">
             <Network className="w-16 h-16 text-slate-400 mx-auto mb-4" />
@@ -212,12 +226,6 @@ function AppContent() {
           </div>
         )}
       </main>
-
-      <footer className="bg-gradient-to-r from-teal-700 to-emerald-600 text-white py-4 mt-12">
-        <div className="container mx-auto px-6 text-center text-sm">
-          Copyright © 2024 AEM Enersol. All rights reserved.
-        </div>
-      </footer>
     </div>
   );
 }

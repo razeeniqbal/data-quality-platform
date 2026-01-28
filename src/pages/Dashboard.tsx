@@ -11,9 +11,10 @@ interface ProjectWithRole extends Project {
 
 interface DashboardProps {
   onNavigateToScore: (projectId?: string) => void;
+  onNavigateToRecords: (projectId: string) => void;
 }
 
-export default function Dashboard({ onNavigateToScore }: DashboardProps) {
+export default function Dashboard({ onNavigateToScore, onNavigateToRecords }: DashboardProps) {
   const { user } = useAuth();
   const [myProjects, setMyProjects] = useState<ProjectWithRole[]>([]);
   const [sharedProjects, setSharedProjects] = useState<ProjectWithRole[]>([]);
@@ -204,7 +205,7 @@ export default function Dashboard({ onNavigateToScore }: DashboardProps) {
             <div
               key={project.id}
               className="bg-white rounded-lg shadow-md hover:shadow-xl transition p-6 cursor-pointer group"
-              onClick={() => onNavigateToScore(project.id)}
+              onClick={() => onNavigateToRecords(project.id)}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="grid grid-cols-3 gap-1 flex-shrink-0">

@@ -80,7 +80,7 @@ export default function Score({ projectId }: ScoreProps) {
     setCurrentStep('configure');
   }
 
-  function handleExecuteRules(results: any) {
+  function handleExecuteRules() {
     setCurrentStep('results');
   }
 
