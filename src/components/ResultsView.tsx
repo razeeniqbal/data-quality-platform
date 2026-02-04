@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Download, Filter, ArrowLeft } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Download, ArrowLeft } from 'lucide-react';
+import { apiClient } from '../lib/api-client';
 import type { QualityResult } from '../types/database';
 
 interface ResultsViewProps {
@@ -20,13 +20,7 @@ export default function ResultsView({ datasetId, onBack }: ResultsViewProps) {
 
   async function loadResults() {
     try {
-      const { data, error } = await supabase
-        .from('quality_results')
-        .select('*')
-        .eq('dataset_id', datasetId)
-        .order('dimension', { ascending: true });
-
-      if (error) throw error;
+      const data = await apiClient.getQualityResults(datasetId) as QualityResult[];
       setResults(data || []);
     } catch (error) {
       console.error('Error loading results:', error);
@@ -221,11 +215,6 @@ export default function ResultsView({ datasetId, onBack }: ResultsViewProps) {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {['completeness', 'consistency', 'validity', 'uniqueness'].map((dimension) => {
           const dimensionResults = groupedResults[dimension] || [];
-          const dimensionScore =
-            dimensionResults.length > 0
-              ? dimensionResults.reduce((sum, r) => sum + r.score, 0) /
-                dimensionResults.length
-              : 0;
 
           return (
             <div key={dimension} className="bg-white rounded-lg shadow-md p-4">

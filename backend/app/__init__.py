@@ -1,1 +1,1 @@
-# Backend application package
+# Data Quality Platform Backend

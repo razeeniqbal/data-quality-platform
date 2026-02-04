@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/api-client';
 import { Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, ArrowLeft } from 'lucide-react';
 
 interface RecordData {
@@ -49,55 +49,12 @@ export default function Records({ projectId, onBack }: RecordsProps) {
     setLoading(true);
     try {
       // Load project details
-      const { data: project, error: projectError } = await supabase
-        .from('projects')
-        .select('name')
-        .eq('id', projectId)
-        .single();
-
-      if (projectError) throw projectError;
+      const project = await apiClient.getProject(projectId) as any;
       setProjectName(project?.name || '');
 
-      // Load datasets with their quality results for this project
-      const { data: datasets, error: datasetError } = await supabase
-        .from('datasets')
-        .select(`
-          *,
-          quality_results (
-            result_data,
-            overall_score
-          )
-        `)
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: false });
-
-      if (datasetError) throw datasetError;
-
-      // Transform the data into records with quality scores
-      const transformedRecords: RecordData[] = [];
-      datasets?.forEach((dataset) => {
-        const fileData = dataset.file_data || [];
-        const qualityResults = dataset.quality_results?.[0];
-        const overallScore = qualityResults?.overall_score || 0;
-
-        fileData.forEach((row: any, index: number) => {
-          transformedRecords.push({
-            id: `${dataset.id}-${index}`,
-            region: row.Region || row.region || '',
-            location: row.Location || row.location || '',
-            location_information: row['Location Information'] || row.location_information || '',
-            contract_name: row['Contract Name'] || row.contract_name || '',
-            operator_name: row['Operator Name'] || row.operator_name || '',
-            date: row.Date || row.date || '',
-            derived_date: row['Derived Date'] || row.derived_date || '',
-            crude_bbls: parseFloat(row['Crude BBLS'] || row.crude_bbls || 0),
-            quality_score: overallScore,
-            ...row
-          });
-        });
-      });
-
-      setRecords(transformedRecords);
+      // For now, show empty state - backend needs datasets endpoint
+      // This will be populated when backend is connected
+      setRecords([]);
     } catch (error) {
       console.error('Error loading records:', error);
     } finally {

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogIn, Shield, CheckCircle, LayoutGrid, Mail } from 'lucide-react';
+import { Shield, CheckCircle, LayoutGrid, Mail } from 'lucide-react';
 
 export default function Login() {
-  const { signInWithMicrosoft, signInWithEmail, signUpWithEmail } = useAuth();
+  const { signInWithEmail, signUpWithEmail } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -12,17 +12,6 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-
-  async function handleMicrosoftLogin() {
-    setIsLoading(true);
-    setError(null);
-    try {
-      await signInWithMicrosoft();
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign in with Microsoft');
-      setIsLoading(false);
-    }
-  }
 
   async function handleEmailAuth(e: React.FormEvent) {
     e.preventDefault();
@@ -143,7 +132,7 @@ export default function Login() {
           </form>
 
           {/* Toggle Sign In/Sign Up */}
-          <div className="text-center mb-4">
+          <div className="text-center">
             <button
               onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
               className="text-sm text-teal-600 hover:text-teal-700 font-medium"
@@ -151,26 +140,6 @@ export default function Login() {
               {mode === 'signin' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
             </button>
           </div>
-
-          {/* Divider */}
-          <div className="relative mb-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-300"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-slate-500">Or continue with</span>
-            </div>
-          </div>
-
-          {/* Microsoft Login Button */}
-          <button
-            onClick={handleMicrosoftLogin}
-            disabled={isLoading}
-            className="w-full bg-white border-2 border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-          >
-            <LogIn className="w-5 h-5" />
-            <span className="font-medium">Microsoft</span>
-          </button>
 
           {/* Error Message */}
           {error && (
@@ -186,7 +155,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-sm text-slate-600 mt-6">
-          Copyright © 2024 AEM Enersol. All rights reserved.
+          Copyright 2024 AEM Enersol. All rights reserved.
         </p>
       </div>
     </div>

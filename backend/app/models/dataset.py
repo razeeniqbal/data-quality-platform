@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -13,11 +13,12 @@ class Dataset(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
-    file_path = Column(Text, nullable=False)
-    file_size = Column(Integer)
-    row_count = Column(Integer)
-    column_count = Column(Integer)
-    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    file_name = Column(String(255))
+    row_count = Column(Integer, default=0)
+    column_count = Column(Integer, default=0)
+    file_data = Column(JSONB)  # Store CSV data as JSON
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
     project = relationship("Project", back_populates="datasets")
@@ -31,10 +32,9 @@ class DatasetColumn(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
     column_name = Column(String(255), nullable=False)
-    data_type = Column(String(100))
-    null_count = Column(Integer)
-    unique_count = Column(Integer)
-    sample_values = Column(Text)  # JSON array as text
+    column_index = Column(Integer)
+    data_type = Column(String(50), default="text")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     dataset = relationship("Dataset", back_populates="columns")

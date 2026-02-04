@@ -3,7 +3,7 @@ import UploadInterface from '../components/UploadInterface';
 import DataPreview from '../components/DataPreview';
 import QualityConfiguration from '../components/QualityConfiguration';
 import ResultsView from '../components/ResultsView';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/api-client';
 
 type ScoreStep = 'upload' | 'configure' | 'results';
 
@@ -30,40 +30,11 @@ export default function Score({ projectId }: ScoreProps) {
   async function loadProjectData(projId: string) {
     setLoading(true);
     try {
-      const { data: datasets, error: datasetError } = await supabase
-        .from('datasets')
-        .select('*')
-        .eq('project_id', projId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // Load project - datasets would be fetched from backend when ready
+      const project = await apiClient.getProject(projId) as any;
 
-      if (datasetError) throw datasetError;
-
-      if (datasets) {
-        setDatasetId(datasets.id);
-
-        const fileData = datasets.file_data || [];
-        if (fileData.length > 0) {
-          const headers = Object.keys(fileData[0]);
-          const rows = fileData;
-          setUploadedData({ headers, rows });
-        }
-
-        const { data: results, error: resultsError } = await supabase
-          .from('quality_results')
-          .select('*')
-          .eq('dataset_id', datasets.id)
-          .limit(1);
-
-        if (resultsError) throw resultsError;
-
-        if (results && results.length > 0) {
-          setCurrentStep('results');
-        } else {
-          setCurrentStep('configure');
-        }
-      } else {
+      if (project) {
+        // For now, start with upload step since we need to implement dataset fetching
         setCurrentStep('upload');
       }
     } catch (error) {

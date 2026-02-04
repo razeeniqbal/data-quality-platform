@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Save, Trash2, Settings, AlertCircle, Info } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/api-client';
 import type { QualityDimensionConfig } from '../types/database';
 
 export default function DimensionConfig() {
@@ -24,13 +24,13 @@ export default function DimensionConfig() {
 
   async function loadDimensions() {
     try {
-      const { data, error } = await supabase
-        .from('quality_dimension_config')
-        .select('*')
-        .order('display_order', { ascending: true });
-
-      if (error) throw error;
-      setDimensions(data || []);
+      // For now, use default dimensions until backend is connected
+      setDimensions([
+        { id: '1', name: 'Completeness', key: 'completeness', description: 'Check if all required fields have values', icon: 'check-circle', color: '#14b8a6', is_active: true, display_order: 1 },
+        { id: '2', name: 'Uniqueness', key: 'uniqueness', description: 'Check for duplicate values', icon: 'fingerprint', color: '#8b5cf6', is_active: true, display_order: 2 },
+        { id: '3', name: 'Consistency', key: 'consistency', description: 'Check data format and pattern consistency', icon: 'shield', color: '#f59e0b', is_active: true, display_order: 3 },
+        { id: '4', name: 'Validity', key: 'validity', description: 'Validate data against rules', icon: 'check-square', color: '#ef4444', is_active: true, display_order: 4 },
+      ]);
     } catch (error) {
       console.error('Error loading dimensions:', error);
     } finally {
@@ -46,27 +46,8 @@ export default function DimensionConfig() {
 
     setSaving(true);
     try {
-      if (editingId) {
-        const { error } = await supabase
-          .from('quality_dimension_config')
-          .update({
-            ...formData,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', editingId);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('quality_dimension_config')
-          .insert([{
-            ...formData,
-            color: '#14b8a6',
-            display_order: dimensions.length + 1,
-          }]);
-
-        if (error) throw error;
-      }
+      // TODO: Implement API calls when backend is ready
+      console.log('Saving dimension:', formData);
 
       setFormData({
         name: '',
@@ -90,12 +71,8 @@ export default function DimensionConfig() {
     if (!confirm('Are you sure you want to delete this dimension?')) return;
 
     try {
-      const { error } = await supabase
-        .from('quality_dimension_config')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      // TODO: Implement API calls when backend is ready
+      console.log('Deleting dimension:', id);
       await loadDimensions();
     } catch (error) {
       console.error('Error deleting dimension:', error);
@@ -105,15 +82,8 @@ export default function DimensionConfig() {
 
   async function handleToggleActive(dimension: QualityDimensionConfig) {
     try {
-      const { error } = await supabase
-        .from('quality_dimension_config')
-        .update({
-          is_active: !dimension.is_active,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', dimension.id);
-
-      if (error) throw error;
+      // TODO: Implement API calls when backend is ready
+      console.log('Toggling dimension:', dimension.id);
       await loadDimensions();
     } catch (error) {
       console.error('Error toggling dimension:', error);
@@ -251,7 +221,13 @@ export default function DimensionConfig() {
               Active
             </label>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={handleCancel}
+              className="px-6 py-2 text-slate-600 hover:text-slate-800 transition"
+            >
+              Cancel
+            </button>
             <button
               onClick={handleSave}
               disabled={saving}
@@ -272,23 +248,17 @@ export default function DimensionConfig() {
             <div className="space-y-2 text-blue-700 mb-3">
               <div className="flex items-center space-x-2">
                 <div className="w-4 h-4 bg-green-600 rounded"></div>
-                <span><strong>Green</strong> - Attributes are configured and ready to execute (e.g., completeness, uniqueness)</span>
+                <span><strong>Green</strong> - Attributes are configured and ready to execute</span>
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-4 h-4 bg-red-600 rounded"></div>
-                <span><strong>Red</strong> - Attributes placed but need additional configuration (e.g., consistency, validity)</span>
+                <span><strong>Red</strong> - Attributes placed but need additional configuration</span>
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-4 h-4 bg-slate-400 rounded"></div>
                 <span><strong>Gray</strong> - No attributes added yet</span>
               </div>
             </div>
-            <p className="font-medium mb-1 mt-3">Configuration Tips:</p>
-            <ul className="list-disc list-inside space-y-1 text-blue-700">
-              <li>The Key must be unique and cannot be changed after creation</li>
-              <li>Inactive dimensions will not appear in the quality checking interface</li>
-              <li>Icon names should match lucide-react icon names (e.g., check-circle, shield, fingerprint)</li>
-            </ul>
           </div>
         </div>
       </div>

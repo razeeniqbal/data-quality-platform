@@ -3,30 +3,21 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
-    # Application
-    APP_NAME: str = "Data Quality Platform API"
+    # App
+    APP_NAME: str = "Data Quality Platform"
     VERSION: str = "1.0.0"
-    ENVIRONMENT: str = "development"
+    DEBUG: bool = False
 
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/data_quality_db"
 
     # JWT
-    SECRET_KEY: str
+    SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
-    # CORS
+    # Frontend URL (for CORS)
     FRONTEND_URL: str = "http://localhost:5173"
-
-    # File Upload
-    UPLOAD_DIR: str = "./uploads"
-    MAX_UPLOAD_SIZE: int = 10485760  # 10MB
-
-    # Microsoft OAuth
-    MICROSOFT_CLIENT_ID: Optional[str] = None
-    MICROSOFT_CLIENT_SECRET: Optional[str] = None
-    MICROSOFT_TENANT_ID: Optional[str] = None
 
     class Config:
         env_file = ".env"

@@ -11,44 +11,28 @@ class QualityDimensionConfig(Base):
     __tablename__ = "quality_dimension_config"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    dimension_name = Column(String(100), nullable=False)
-    is_enabled = Column(Boolean, default=True)
-    weight = Column(Float, default=1.0)
+    name = Column(String(100), nullable=False)
+    key = Column(String(50), unique=True, nullable=False)
+    description = Column(Text)
+    icon = Column(String(50), default="check-circle")
+    color = Column(String(20), default="#14b8a6")
+    is_active = Column(Boolean, default=True)
+    display_order = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    configurations = relationship("DimensionConfiguration", back_populates="dimension", cascade="all, delete-orphan")
-
-
-class DimensionConfiguration(Base):
-    __tablename__ = "dimension_configurations"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    config_id = Column(UUID(as_uuid=True), ForeignKey("quality_dimension_config.id", ondelete="CASCADE"), nullable=False, unique=True)
-    rule_type = Column(String(100))
-    threshold = Column(Float)
-    column_name = Column(String(255))
-    reference_file_id = Column(UUID(as_uuid=True), ForeignKey("reference_data_files.id", ondelete="SET NULL"))
-    additional_config = Column(JSONB)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    dimension = relationship("QualityDimensionConfig", back_populates="configurations")
-    reference_file = relationship("ReferenceDataFile")
 
 
 class QualityRule(Base):
     __tablename__ = "quality_rules"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    dimension_name = Column(String(100), nullable=False)
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
+    column_name = Column(String(255), nullable=False)
+    dimension = Column(String(50), nullable=False)
     rule_type = Column(String(100), nullable=False)
-    column_name = Column(String(255))
-    threshold = Column(Float)
-    configuration = Column(JSONB)
+    rule_config = Column(JSONB)
+    description = Column(Text)
+    status = Column(String(20), default="ready")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -57,34 +41,15 @@ class QualityResult(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
-    dimension_name = Column(String(100), nullable=False)
-    score = Column(Float)
-    passed = Column(Boolean)
-    details = Column(JSONB)
+    rule_id = Column(UUID(as_uuid=True), ForeignKey("quality_rules.id", ondelete="CASCADE"))
+    column_name = Column(String(255), nullable=False)
+    dimension = Column(String(50), nullable=False)
+    passed_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    total_count = Column(Integer, default=0)
+    score = Column(Float, default=0.0)
+    result_data = Column(JSONB)
     executed_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     dataset = relationship("Dataset", back_populates="quality_results")
-
-
-class Template(Base):
-    __tablename__ = "templates"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    name = Column(String(255), nullable=False)
-    description = Column(Text)
-    configuration = Column(JSONB, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-
-class ReferenceDataFile(Base):
-    __tablename__ = "reference_data_files"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    file_name = Column(String(255), nullable=False)
-    file_path = Column(Text, nullable=False)
-    file_size = Column(Integer)
-    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())

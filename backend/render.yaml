@@ -1,12 +1,15 @@
+# Render.com deployment configuration
+# This file tells Render how to deploy your backend
+
 services:
+  # Web Service (FastAPI Backend)
   - type: web
     name: data-quality-api
-    env: python
-    region: oregon
-    plan: starter
-    branch: main
+    runtime: python
+    region: singapore  # Change to your preferred region
+    plan: free  # Use 'starter' for production
     buildCommand: pip install -r requirements.txt
-    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -14,20 +17,12 @@ services:
           property: connectionString
       - key: SECRET_KEY
         generateValue: true
-      - key: ALGORITHM
-        value: HS256
-      - key: ACCESS_TOKEN_EXPIRE_MINUTES
-        value: 30
       - key: FRONTEND_URL
-        value: https://your-app.vercel.app
-      - key: ENVIRONMENT
-        value: production
-      - key: PYTHON_VERSION
-        value: 3.11.0
+        value: https://your-app.vercel.app  # Update with your Vercel URL
+    healthCheckPath: /health
 
 databases:
+  # PostgreSQL Database
   - name: data-quality-db
-    databaseName: data_quality
-    user: data_quality_user
-    plan: starter
-    region: oregon
+    plan: free  # Use 'starter' for production
+    region: singapore  # Same region as web service

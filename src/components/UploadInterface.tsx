@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Upload, FileText, Database, Key } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/api-client';
 
 interface UploadInterfaceProps {
   onDataUploaded: (data: any, datasetId: string) => void;
@@ -118,55 +118,14 @@ export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps
 
       const projectName = file.name.replace(/\.csv$/i, '');
 
-      const { data: { user } } = await supabase.auth.getUser();
+      // Create project via API
+      const projectData = await apiClient.createProject(
+        projectName,
+        `Imported from ${file.name}`
+      ) as any;
 
-      const { data: projectData, error: projectError } = await supabase
-        .from('projects')
-        .insert({
-          name: projectName,
-          description: `Imported from ${file.name}`,
-          owner_id: user?.id
-        })
-        .select()
-        .single();
-
-      if (projectError) {
-        console.error('Project error:', projectError);
-        throw new Error(`Database error: ${projectError.message}`);
-      }
-
-      const { data: datasetData, error: datasetError } = await supabase
-        .from('datasets')
-        .insert({
-          project_id: projectData.id,
-          name: file.name,
-          row_count: rows.length,
-          column_count: headers.length,
-          file_data: rows,
-        })
-        .select()
-        .single();
-
-      if (datasetError) {
-        console.error('Dataset error:', datasetError);
-        throw new Error(`Database error: ${datasetError.message}`);
-      }
-
-      const columnInserts = headers.map((header, index) => ({
-        dataset_id: datasetData.id,
-        column_name: header,
-        column_index: index,
-        data_type: 'text',
-      }));
-
-      const { error: columnsError } = await supabase
-        .from('dataset_columns')
-        .insert(columnInserts);
-
-      if (columnsError) {
-        console.error('Columns error:', columnsError);
-        throw new Error(`Database error: ${columnsError.message}`);
-      }
+      // Upload dataset via API
+      const datasetData = await apiClient.uploadDataset(projectData.id, file) as any;
 
       onDataUploaded({ headers, rows }, datasetData.id);
     } catch (error: any) {

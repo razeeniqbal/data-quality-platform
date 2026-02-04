@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Upload, Grid3x3, Crown, Edit, Eye, Users } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { apiClient } from '../lib/api-client';
 import { useAuth } from '../contexts/AuthContext';
 import type { Project } from '../types/database';
 
@@ -30,51 +30,19 @@ export default function Dashboard({ onNavigateToScore, onNavigateToRecords }: Da
 
   async function loadProjects() {
     try {
-      // Load projects owned by user
-      const { data: owned, error: ownedError } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('owner_id', user!.id)
-        .order('created_at', { ascending: false });
+      const projects = await apiClient.getProjects() as any[];
 
-      if (ownedError) throw ownedError;
+      // Separate owned and shared projects
+      const owned = projects
+        .filter((p: any) => p.owner_id === user?.id)
+        .map((p: any) => ({ ...p, role: 'owner' as const }));
 
-      // Load projects shared with user
-      const { data: memberships, error: memberError } = await supabase
-        .from('project_members')
-        .select(`
-          role,
-          projects (*)
-        `)
-        .eq('user_id', user!.id);
+      const shared = projects
+        .filter((p: any) => p.owner_id !== user?.id)
+        .map((p: any) => ({ ...p, role: p.role || 'viewer' as const }));
 
-      if (memberError) throw memberError;
-
-      // Get member counts for owned projects
-      const ownedWithCounts = await Promise.all(
-        (owned || []).map(async (project) => {
-          const { count } = await supabase
-            .from('project_members')
-            .select('*', { count: 'exact', head: true })
-            .eq('project_id', project.id);
-
-          return {
-            ...project,
-            role: 'owner' as const,
-            member_count: count || 0,
-          };
-        })
-      );
-
-      const sharedWithRole = (memberships || [])
-        .filter((m) => m.projects)
-        .map((m) => ({
-          ...(m.projects as any),
-          role: m.role as 'editor' | 'viewer',
-        }));
-
-      setMyProjects(ownedWithCounts);
-      setSharedProjects(sharedWithRole);
+      setMyProjects(owned);
+      setSharedProjects(shared);
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
@@ -108,7 +76,7 @@ export default function Dashboard({ onNavigateToScore, onNavigateToRecords }: Da
   const filteredProjects = projectsToShow.filter(
     (project) =>
       project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.description.toLowerCase().includes(searchQuery.toLowerCase())
+      project.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
