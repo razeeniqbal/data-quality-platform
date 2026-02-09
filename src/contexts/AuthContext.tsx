@@ -11,6 +11,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  profile: User | null;
   loading: boolean;
   isAuthenticated: boolean;
   signInWithEmail: (email: string, password: string) => Promise<void>;
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        profile: user,
         loading,
         isAuthenticated: !!user,
         signInWithEmail,
