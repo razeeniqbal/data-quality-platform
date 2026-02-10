@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, TypeDecorator, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -7,16 +6,32 @@ import uuid
 from app.core.database import Base
 
 
+# UUID type that works with both SQLite and PostgreSQL
+class GUID(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        return uuid.UUID(value)
+
+
 class Dataset(Base):
     __tablename__ = "datasets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    project_id = Column(GUID(), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
     file_name = Column(String(255))
     row_count = Column(Integer, default=0)
     column_count = Column(Integer, default=0)
-    file_data = Column(JSONB)  # Store CSV data as JSON
+    file_data = Column(JSON)  # Store CSV data as JSON (works with SQLite and PostgreSQL)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -29,8 +44,8 @@ class Dataset(Base):
 class DatasetColumn(Base):
     __tablename__ = "dataset_columns"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    dataset_id = Column(GUID(), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
     column_name = Column(String(255), nullable=False)
     column_index = Column(Integer)
     data_type = Column(String(50), default="text")

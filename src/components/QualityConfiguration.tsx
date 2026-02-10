@@ -1,17 +1,27 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Save, Play } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
-import type { QualityDimension, QualityDimensionConfig } from '../types/database';
+import type { QualityDimension, QualityDimensionConfig, Template } from '../types/database';
 import QualityDimensionCard from './QualityDimensionCard';
 import DimensionConfigModal from './DimensionConfigModal';
 
 interface QualityConfigurationProps {
   data: {
     headers: string[];
-    rows: Record<string, any>[];
+    rows: Array<Record<string, string | number | boolean | null>>;
   };
   datasetId: string;
-  onExecute: (results: any) => void;
+  onExecute: (results: QualityCheckResult[]) => void;
+}
+
+interface QualityCheckResult {
+  id: string;
+  column_name: string;
+  dimension: QualityDimension;
+  passed_count: number;
+  failed_count: number;
+  total_count: number;
+  score: number;
 }
 
 interface DimensionRules {
@@ -26,7 +36,7 @@ export default function QualityConfiguration({
   const [dimensions, setDimensions] = useState<QualityDimensionConfig[]>([]);
   const [dimensionRules, setDimensionRules] = useState<DimensionRules>({});
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
-  const [templates, setTemplates] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
   const [loadingDimensions, setLoadingDimensions] = useState(true);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
@@ -110,7 +120,7 @@ export default function QualityConfiguration({
     });
   }
 
-  async function handleSaveConfiguration(config: Record<string, any>, referenceFile?: File) {
+  async function handleSaveConfiguration(config: Record<string, string | number | boolean>, referenceFile?: File) {
     if (!configModal.dimension || !configModal.column) return;
 
     try {
@@ -222,14 +232,14 @@ export default function QualityConfiguration({
     }
   }
 
-  function executeRule(dimensionKey: string, columnName: string, rows: Record<string, any>[]) {
+  function executeRule(dimensionKey: string, columnName: string, rows: Array<Record<string, string | number | boolean | null>>): QualityCheckResult {
     let passedCount = 0;
     let failedCount = 0;
 
     if (dimensionKey === 'completeness') {
       for (const row of rows) {
         const value = row[columnName];
-        if (value && value.toString().trim() !== '') {
+        if (value && String(value).trim() !== '') {
           passedCount++;
         } else {
           failedCount++;
@@ -256,9 +266,8 @@ export default function QualityConfiguration({
 
     return {
       id: `${dimensionKey}-${columnName}`,
-      dataset_id: datasetId,
       column_name: columnName,
-      dimension: dimensionKey,
+      dimension: dimensionKey as QualityDimension,
       passed_count: passedCount,
       failed_count: failedCount,
       total_count: totalCount,

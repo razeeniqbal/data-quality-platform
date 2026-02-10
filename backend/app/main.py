@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.database import engine, Base
 from app.api.v1 import router as api_router
+from app.models import project, dataset, quality, user  # Import models to register them
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -10,6 +12,9 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json"
 )
+
+# Create tables on startup
+Base.metadata.create_all(bind=engine)
 
 # CORS middleware - allow frontend from Vercel
 app.add_middleware(

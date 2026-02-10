@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Upload, Grid3x3, Crown, Edit, Eye, Users } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
-import { useAuth } from '../contexts/AuthContext';
 import type { Project } from '../types/database';
 
 interface ProjectWithRole extends Project {
@@ -15,7 +14,6 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onNavigateToScore, onNavigateToRecords }: DashboardProps) {
-  const { user } = useAuth();
   const [myProjects, setMyProjects] = useState<ProjectWithRole[]>([]);
   const [sharedProjects, setSharedProjects] = useState<ProjectWithRole[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -23,26 +21,18 @@ export default function Dashboard({ onNavigateToScore, onNavigateToRecords }: Da
   const [activeTab, setActiveTab] = useState<'my' | 'shared'>('my');
 
   useEffect(() => {
-    if (user) {
-      loadProjects();
-    }
-  }, [user]);
+    loadProjects();
+  }, []);
 
   async function loadProjects() {
     try {
-      const projects = await apiClient.getProjects() as any[];
+      const projects = await apiClient.getProjects() as Project[];
 
-      // Separate owned and shared projects
-      const owned = projects
-        .filter((p: any) => p.owner_id === user?.id)
-        .map((p: any) => ({ ...p, role: 'owner' as const }));
-
-      const shared = projects
-        .filter((p: any) => p.owner_id !== user?.id)
-        .map((p: any) => ({ ...p, role: p.role || 'viewer' as const }));
+      // In public mode, all projects are treated as owned
+      const owned = projects.map((p: Project) => ({ ...p, role: 'owner' as const }));
 
       setMyProjects(owned);
-      setSharedProjects(shared);
+      setSharedProjects([]);
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {

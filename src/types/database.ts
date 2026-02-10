@@ -13,7 +13,7 @@ export interface Dataset {
   name: string;
   row_count: number;
   column_count: number;
-  file_data: any[];
+  file_data: Array<Record<string, string | number | boolean | null>>;
   created_at: string;
 }
 
@@ -55,9 +55,14 @@ export interface QualityResult {
 export interface Template {
   id: string;
   name: string;
-  rules: any[];
+  rules: TemplateRule[];
   user_id: string;
   created_at: string;
+}
+
+export interface TemplateRule {
+  dimensionRules: Record<string, string[]>;
+  configuredColumns: Record<string, string[]>;
 }
 
 export interface QualityDimensionConfig {
