@@ -5,8 +5,6 @@ from typing import List, Optional
 from uuid import UUID
 
 from app.core.database import get_db
-from app.core.security import get_current_active_user
-from app.models.user import User
 from app.models.project import Project
 from app.models.dataset import Dataset
 from app.models.quality import QualityDimensionConfig, QualityRule, QualityResult
@@ -48,7 +46,6 @@ class RunQualityRequest(BaseModel):
 
 @router.get("/dimensions", response_model=List[DimensionResponse])
 async def get_quality_dimensions(
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get all active quality dimensions"""
@@ -83,18 +80,12 @@ async def get_quality_dimensions(
 @router.post("/run")
 async def run_quality_checks(
     dataset_id: UUID = Query(...),
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Run quality checks on a dataset"""
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-
-    # Check project access
-    project = db.query(Project).filter(Project.id == dataset.project_id).first()
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get dataset data
     file_data = dataset.file_data or []
@@ -145,18 +136,12 @@ async def run_quality_checks(
 @router.get("/results/{dataset_id}", response_model=List[QualityResultResponse])
 async def get_quality_results(
     dataset_id: UUID,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get quality results for a dataset"""
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-
-    # Check project access
-    project = db.query(Project).filter(Project.id == dataset.project_id).first()
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
 
     results = db.query(QualityResult).filter(
         QualityResult.dataset_id == dataset_id

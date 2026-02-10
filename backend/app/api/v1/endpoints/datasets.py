@@ -7,8 +7,6 @@ import pandas as pd
 import io
 
 from app.core.database import get_db
-from app.core.security import get_current_active_user
-from app.models.user import User
 from app.models.project import Project
 from app.models.dataset import Dataset, DatasetColumn
 
@@ -38,17 +36,13 @@ class DatasetPreview(BaseModel):
 async def upload_dataset(
     project_id: UUID = Query(...),
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Upload a CSV file as a dataset"""
-    # Check project access
+    # Check project exists
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Validate file type
     if not file.filename.lower().endswith('.csv'):
@@ -105,18 +99,12 @@ async def upload_dataset(
 @router.get("/{dataset_id}", response_model=DatasetResponse)
 async def get_dataset(
     dataset_id: UUID,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get dataset info"""
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-
-    # Check project access
-    project = db.query(Project).filter(Project.id == dataset.project_id).first()
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
 
     return DatasetResponse(
         id=str(dataset.id),
@@ -133,18 +121,12 @@ async def get_dataset(
 async def preview_dataset(
     dataset_id: UUID,
     limit: int = Query(100, ge=1, le=1000),
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Preview dataset rows"""
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-
-    # Check project access
-    project = db.query(Project).filter(Project.id == dataset.project_id).first()
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
 
     file_data = dataset.file_data or []
     headers = list(file_data[0].keys()) if file_data else []
@@ -159,18 +141,12 @@ async def preview_dataset(
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dataset(
     dataset_id: UUID,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Delete dataset"""
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-
-    # Check project access
-    project = db.query(Project).filter(Project.id == dataset.project_id).first()
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
 
     db.delete(dataset)
     db.commit()

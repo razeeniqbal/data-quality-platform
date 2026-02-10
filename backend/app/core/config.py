@@ -22,7 +22,6 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:3000",
         "https://dataqualityplatform.vercel.app",
-        "https://*.vercel.app",
     ]
 
     class Config:

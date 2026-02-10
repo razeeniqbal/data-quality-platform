@@ -46,8 +46,22 @@ export default function DimensionConfig() {
 
     setSaving(true);
     try {
-      // TODO: Implement API calls when backend is ready
-      console.log('Saving dimension:', formData);
+      if (editingId) {
+        await apiClient.updateQualityDimension(editingId, {
+          name: formData.name,
+          description: formData.description,
+          icon: formData.icon,
+          is_active: formData.is_active,
+        });
+      } else {
+        await apiClient.createQualityDimension({
+          name: formData.name,
+          key: formData.key,
+          description: formData.description,
+          icon: formData.icon,
+          is_active: formData.is_active,
+        });
+      }
 
       setFormData({
         name: '',
@@ -71,8 +85,7 @@ export default function DimensionConfig() {
     if (!confirm('Are you sure you want to delete this dimension?')) return;
 
     try {
-      // TODO: Implement API calls when backend is ready
-      console.log('Deleting dimension:', id);
+      await apiClient.deleteQualityDimension(id);
       await loadDimensions();
     } catch (error) {
       console.error('Error deleting dimension:', error);
@@ -82,8 +95,9 @@ export default function DimensionConfig() {
 
   async function handleToggleActive(dimension: QualityDimensionConfig) {
     try {
-      // TODO: Implement API calls when backend is ready
-      console.log('Toggling dimension:', dimension.id);
+      await apiClient.updateQualityDimension(dimension.id, {
+        is_active: !dimension.is_active,
+      });
       await loadDimensions();
     } catch (error) {
       console.error('Error toggling dimension:', error);

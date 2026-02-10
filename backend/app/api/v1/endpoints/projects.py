@@ -5,8 +5,6 @@ from typing import List, Optional
 from uuid import UUID
 
 from app.core.database import get_db
-from app.core.security import get_current_active_user
-from app.models.user import User
 from app.models.project import Project, ProjectMember, ProjectRole
 
 router = APIRouter()
@@ -36,14 +34,13 @@ class ProjectResponse(BaseModel):
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     project_data: ProjectCreate,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Create a new project"""
     db_project = Project(
         name=project_data.name,
         description=project_data.description,
-        owner_id=current_user.id
+        owner_id="system"  # Default owner for public access
     )
     db.add(db_project)
     db.commit()
@@ -60,22 +57,10 @@ async def create_project(
 
 @router.get("/", response_model=List[ProjectResponse])
 async def list_projects(
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """List all projects accessible to the user"""
-    # Get owned projects
-    owned = db.query(Project).filter(Project.owner_id == current_user.id).all()
-
-    # Get projects where user is a member
-    memberships = db.query(ProjectMember).filter(
-        ProjectMember.user_id == current_user.id
-    ).all()
-    member_project_ids = [m.project_id for m in memberships]
-    member_projects = db.query(Project).filter(Project.id.in_(member_project_ids)).all() if member_project_ids else []
-
-    # Combine and deduplicate
-    all_projects = {str(p.id): p for p in owned + member_projects}
+    """List all projects"""
+    projects = db.query(Project).all()
 
     return [
         ProjectResponse(
@@ -85,29 +70,19 @@ async def list_projects(
             owner_id=str(p.owner_id),
             created_at=p.created_at.isoformat()
         )
-        for p in all_projects.values()
+        for p in projects
     ]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: UUID,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get project details"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    # Check access
-    if project.owner_id != current_user.id:
-        membership = db.query(ProjectMember).filter(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == current_user.id
-        ).first()
-        if not membership:
-            raise HTTPException(status_code=403, detail="Access denied")
 
     return ProjectResponse(
         id=str(project.id),
@@ -122,16 +97,12 @@ async def get_project(
 async def update_project(
     project_id: UUID,
     project_data: ProjectUpdate,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Update project"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only owner can update project")
 
     if project_data.name is not None:
         project.name = project_data.name
@@ -153,16 +124,12 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: UUID,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Delete project (owner only)"""
+    """Delete project"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only owner can delete project")
 
     db.delete(project)
     db.commit()

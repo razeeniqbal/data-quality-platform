@@ -2,31 +2,17 @@
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
-interface AuthTokens {
-  access_token: string;
-  token_type: string;
-}
-
 class ApiClient {
   private baseUrl: string;
-  private token: string | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
-    // Load token from localStorage
-    this.token = localStorage.getItem('access_token');
   }
 
   private getHeaders(): HeadersInit {
-    const headers: HeadersInit = {
+    return {
       'Content-Type': 'application/json',
     };
-
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
-    return headers;
   }
 
   private async handleResponse<T>(response: Response): Promise<T> {
@@ -41,51 +27,6 @@ class ApiClient {
     }
 
     return response.json();
-  }
-
-  // Authentication
-  async register(email: string, password: string, full_name?: string) {
-    const response = await fetch(`${this.baseUrl}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, full_name }),
-    });
-    return this.handleResponse(response);
-  }
-
-  async login(email: string, password: string): Promise<AuthTokens> {
-    const formData = new URLSearchParams();
-    formData.append('username', email);
-    formData.append('password', password);
-
-    const response = await fetch(`${this.baseUrl}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData,
-    });
-
-    const data = await this.handleResponse<AuthTokens>(response);
-    this.token = data.access_token;
-    localStorage.setItem('access_token', data.access_token);
-    return data;
-  }
-
-  async logout() {
-    const response = await fetch(`${this.baseUrl}/auth/logout`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-    });
-
-    this.token = null;
-    localStorage.removeItem('access_token');
-    return this.handleResponse(response);
-  }
-
-  async getCurrentUser() {
-    const response = await fetch(`${this.baseUrl}/auth/me`, {
-      headers: this.getHeaders(),
-    });
-    return this.handleResponse(response);
   }
 
   // Projects
@@ -175,6 +116,32 @@ class ApiClient {
         headers: this.getHeaders(),
       }
     );
+    return this.handleResponse(response);
+  }
+
+  async createQualityDimension(data: { name: string; key: string; description?: string; icon?: string; is_active?: boolean }) {
+    const response = await fetch(`${this.baseUrl}/quality/dimensions`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return this.handleResponse(response);
+  }
+
+  async updateQualityDimension(dimensionId: string, data: { name?: string; description?: string; icon?: string; is_active?: boolean }) {
+    const response = await fetch(`${this.baseUrl}/quality/dimensions/${dimensionId}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return this.handleResponse(response);
+  }
+
+  async deleteQualityDimension(dimensionId: string) {
+    const response = await fetch(`${this.baseUrl}/quality/dimensions/${dimensionId}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
     return this.handleResponse(response);
   }
 

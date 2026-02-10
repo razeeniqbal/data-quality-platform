@@ -25,7 +25,7 @@ export interface DatasetColumn {
   data_type: string;
 }
 
-export type QualityDimension = 'completeness' | 'consistency' | 'validity' | 'uniqueness';
+export type QualityDimension = 'completeness' | 'consistency' | 'validity' | 'uniqueness' | 'accuracy' | 'timeliness';
 export type RuleStatus = 'pending' | 'ready' | 'completed';
 
 export interface QualityRule {

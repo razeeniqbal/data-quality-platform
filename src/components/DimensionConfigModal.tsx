@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Save, AlertCircle, Upload, FileText, CheckCircle } from 'lucide-react';
+import { X, Save, AlertCircle, Upload, CheckCircle } from 'lucide-react';
 import type { QualityDimension } from '../types/database';
 
 interface DimensionConfigModalProps {
