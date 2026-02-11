@@ -1,25 +1,10 @@
-from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, ForeignKey, Text, TypeDecorator, JSON
+from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 
 from app.core.database import Base
-
-
-# UUID type that works with both SQLite and PostgreSQL
-class GUID(TypeDecorator):
-    impl = String
-    cache_ok = True
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return value
-        return str(value)
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return value
-        return uuid.UUID(value)
+from app.core.types import GUID
 
 
 class QualityDimensionConfig(Base):

@@ -1,26 +1,11 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum, TypeDecorator
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 import enum
 
 from app.core.database import Base
-
-
-# UUID type that works with both SQLite and PostgreSQL
-class GUID(TypeDecorator):
-    impl = String
-    cache_ok = True
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return value
-        return str(value)
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return value
-        return uuid.UUID(value)
+from app.core.types import GUID
 
 
 class ProjectRole(str, enum.Enum):
@@ -40,7 +25,6 @@ class Project(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    # owner = relationship("User", foreign_keys=[owner_id])  # Removed - owner_id is now a string
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
     datasets = relationship("Dataset", back_populates="project", cascade="all, delete-orphan")
 

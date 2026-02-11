@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.v1 import router as api_router
-from app.models import project, dataset, quality, user  # Import models to register them
+from app.models import project, dataset, quality, user
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -13,10 +13,8 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
-# Create tables on startup
 Base.metadata.create_all(bind=engine)
 
-# CORS middleware - allow frontend from Vercel
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -25,7 +23,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API router
 app.include_router(api_router, prefix="/api/v1")
 
 
@@ -41,3 +38,4 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
