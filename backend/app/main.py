@@ -13,7 +13,12 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
-Base.metadata.create_all(bind=engine)
+# Create tables on startup (with error handling for connection issues)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Warning: Could not create database tables on startup: {e}")
+    print("Tables will be created on first database access if they don't exist")
 
 app.add_middleware(
     CORSMiddleware,
