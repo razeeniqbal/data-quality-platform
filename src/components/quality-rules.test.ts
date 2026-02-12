@@ -1,14 +1,5 @@
 import { describe, it, expect } from 'vitest';
 
-// Test data based on QualityCheckResult interface
-interface TestDataRow {
-  id: string | number;
-  name: string;
-  email: string;
-  age: string | number;
-  [key: string]: string | number | boolean | null;
-}
-
 interface QualityCheckResult {
   id: string;
   column_name: string;

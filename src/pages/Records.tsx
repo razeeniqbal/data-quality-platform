@@ -48,12 +48,8 @@ export default function Records({ projectId, onBack }: RecordsProps) {
   async function loadRecords() {
     setLoading(true);
     try {
-      // Load project details
       const project = await apiClient.getProject(projectId) as any;
       setProjectName(project?.name || '');
-
-      // For now, show empty state - backend needs datasets endpoint
-      // This will be populated when backend is connected
       setRecords([]);
     } catch (error) {
       console.error('Error loading records:', error);

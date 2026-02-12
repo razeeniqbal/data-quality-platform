@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, AlertCircle, Save, Play } from 'lucide-react';
-import { apiClient } from '../lib/api-client';
+import { AlertCircle, Save, Play } from 'lucide-react';
 import type { QualityDimension, QualityDimensionConfig, Template } from '../types/database';
 import QualityDimensionCard from './QualityDimensionCard';
 import DimensionConfigModal from './DimensionConfigModal';
@@ -30,7 +29,7 @@ interface DimensionRules {
 
 export default function QualityConfiguration({
   data,
-  datasetId,
+  datasetId: _datasetId,
   onExecute,
 }: QualityConfigurationProps) {
   const [dimensions, setDimensions] = useState<QualityDimensionConfig[]>([]);
@@ -42,7 +41,6 @@ export default function QualityConfiguration({
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [templateName, setTemplateName] = useState('');
-  const [templateDescription, setTemplateDescription] = useState('');
   const [hasTemplateAction, setHasTemplateAction] = useState(false);
   const [configuredColumns, setConfiguredColumns] = useState<Map<string, Set<string>>>(new Map());
   const [configModal, setConfigModal] = useState<{
@@ -63,7 +61,6 @@ export default function QualityConfiguration({
 
   async function loadDimensions() {
     try {
-      // Default dimensions for now
       const defaultDimensions: QualityDimensionConfig[] = [
         { id: '1', name: 'Completeness', key: 'completeness', description: 'Check if all required fields have values', icon: 'check-circle', color: '#14b8a6', is_active: true, display_order: 1 },
         { id: '2', name: 'Uniqueness', key: 'uniqueness', description: 'Check for duplicate values', icon: 'fingerprint', color: '#8b5cf6', is_active: true, display_order: 2 },
@@ -120,7 +117,7 @@ export default function QualityConfiguration({
     });
   }
 
-  async function handleSaveConfiguration(config: Record<string, string | number | boolean>, referenceFile?: File) {
+  async function handleSaveConfiguration(_config: Record<string, string | number | boolean>, _referenceFile?: File) {
     if (!configModal.dimension || !configModal.column) return;
 
     try {
@@ -155,8 +152,7 @@ export default function QualityConfiguration({
 
     setIsSavingTemplate(true);
     try {
-      // Save template locally for now
-      const newTemplate = {
+      const newTemplate: Template = {
         id: Date.now().toString(),
         name: templateName,
         rules: {
@@ -171,7 +167,6 @@ export default function QualityConfiguration({
       setHasTemplateAction(true);
       alert('Template saved successfully!');
       setTemplateName('');
-      setTemplateDescription('');
       setShowSaveTemplateModal(false);
     } catch (error) {
       console.error('Error saving template:', error);

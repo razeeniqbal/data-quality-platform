@@ -24,7 +24,6 @@ export default function DimensionConfig() {
 
   async function loadDimensions() {
     try {
-      // For now, use default dimensions until backend is connected
       setDimensions([
         { id: '1', name: 'Completeness', key: 'completeness', description: 'Check if all required fields have values', icon: 'check-circle', color: '#14b8a6', is_active: true, display_order: 1 },
         { id: '2', name: 'Uniqueness', key: 'uniqueness', description: 'Check for duplicate values', icon: 'fingerprint', color: '#8b5cf6', is_active: true, display_order: 2 },

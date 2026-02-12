@@ -30,11 +30,9 @@ export default function Score({ projectId }: ScoreProps) {
   async function loadProjectData(projId: string) {
     setLoading(true);
     try {
-      // Load project - datasets would be fetched from backend when ready
       const project = await apiClient.getProject(projId) as any;
 
       if (project) {
-        // For now, start with upload step since we need to implement dataset fetching
         setCurrentStep('upload');
       }
     } catch (error) {

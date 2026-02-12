@@ -1,242 +1,290 @@
-// API Client for FastAPI Backend
+// API Client using Supabase
 
+import { supabase } from './supabase';
 import { logger } from './logger';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-
 class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
-    logger.info('API Client initialized', { baseUrl });
-  }
-
-  private getHeaders(): HeadersInit {
-    return {
-      'Content-Type': 'application/json',
-    };
-  }
-
-  private async handleResponse<T>(response: Response, endpoint: string): Promise<T> {
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
-      const errorMessage = error.detail || `HTTP ${response.status}`;
-      logger.error(`API Error: ${endpoint}`, new Error(errorMessage), { status: response.status });
-      throw new Error(errorMessage);
-    }
-
-    // Handle 204 No Content
-    if (response.status === 204) {
-      logger.debug(`API Success: ${endpoint} (No Content)`);
-      return {} as T;
-    }
-
-    const data = await response.json();
-    logger.debug(`API Success: ${endpoint}`, { status: response.status });
-    return data;
+  constructor() {
+    logger.info('API Client initialized with Supabase');
   }
 
   // Projects
   async getProjects() {
-    try {
-      const response = await fetch(`${this.baseUrl}/projects/`, {
-        headers: this.getHeaders(),
-      });
-      return this.handleResponse(response, 'GET /projects');
-    } catch (error) {
-      logger.error('Failed to get projects', error as Error);
-      throw error;
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      logger.error('Failed to get projects', new Error(error.message));
+      throw new Error(error.message);
     }
+    logger.debug('GET projects', { count: data?.length });
+    return data;
   }
 
   async createProject(name: string, description?: string) {
-    try {
-      const response = await fetch(`${this.baseUrl}/projects/`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ name, description }),
-      });
-      return this.handleResponse(response, 'POST /projects');
-    } catch (error) {
-      logger.error('Failed to create project', error as Error, { name });
-      throw error;
+    const { data, error } = await supabase
+      .from('projects')
+      .insert({
+        name,
+        description: description || '',
+        owner_id: 'system',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to create project', new Error(error.message), { name });
+      throw new Error(error.message);
     }
+    logger.info('Created project', { name, id: data.id });
+    return data;
   }
 
   async getProject(projectId: string) {
-    try {
-      const response = await fetch(`${this.baseUrl}/projects/${projectId}`, {
-        headers: this.getHeaders(),
-      });
-      return this.handleResponse(response, `GET /projects/${projectId}`);
-    } catch (error) {
-      logger.error('Failed to get project', error as Error, { projectId });
-      throw error;
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .single();
+
+    if (error) {
+      logger.error('Failed to get project', new Error(error.message), { projectId });
+      throw new Error(error.message);
     }
+    logger.debug(`GET project ${projectId}`);
+    return data;
   }
 
-  async updateProject(projectId: string, data: { name?: string; description?: string }) {
-    try {
-      const response = await fetch(`${this.baseUrl}/projects/${projectId}`, {
-        method: 'PUT',
-        headers: this.getHeaders(),
-        body: JSON.stringify(data),
-      });
-      return this.handleResponse(response, `PUT /projects/${projectId}`);
-    } catch (error) {
-      logger.error('Failed to update project', error as Error, { projectId });
-      throw error;
+  async updateProject(projectId: string, updates: { name?: string; description?: string }) {
+    const { data, error } = await supabase
+      .from('projects')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', projectId)
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to update project', new Error(error.message), { projectId });
+      throw new Error(error.message);
     }
+    logger.info('Updated project', { projectId });
+    return data;
   }
 
   async deleteProject(projectId: string) {
-    try {
-      const response = await fetch(`${this.baseUrl}/projects/${projectId}`, {
-        method: 'DELETE',
-        headers: this.getHeaders(),
-      });
-      return this.handleResponse(response, `DELETE /projects/${projectId}`);
-    } catch (error) {
-      logger.error('Failed to delete project', error as Error, { projectId });
-      throw error;
+    const { error } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', projectId);
+
+    if (error) {
+      logger.error('Failed to delete project', new Error(error.message), { projectId });
+      throw new Error(error.message);
     }
+    logger.info('Deleted project', { projectId });
+    return {};
   }
 
   // Datasets
   async uploadDataset(projectId: string, file: File) {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+    const text = await file.text();
+    const lines = text.trim().split('\n');
+    const headers = this.parseCSVLine(lines[0]);
+    const rows = lines.slice(1)
+      .filter(line => line.trim().length > 0)
+      .map(line => {
+        const values = this.parseCSVLine(line);
+        const row: Record<string, string> = {};
+        headers.forEach((header, index) => {
+          row[header] = values[index] || '';
+        });
+        return row;
+      });
 
-      const response = await fetch(
-        `${this.baseUrl}/datasets/upload?project_id=${projectId}`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-      logger.info('Dataset upload started', { fileName: file.name, projectId });
-      return this.handleResponse(response, 'POST /datasets/upload');
-    } catch (error) {
-      logger.error('Failed to upload dataset', error as Error, { fileName: file.name, projectId });
-      throw error;
+    const { data, error } = await supabase
+      .from('datasets')
+      .insert({
+        project_id: projectId,
+        name: file.name.replace(/\.csv$/i, ''),
+        file_name: file.name,
+        row_count: rows.length,
+        column_count: headers.length,
+        file_data: rows,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to upload dataset', new Error(error.message), { fileName: file.name, projectId });
+      throw new Error(error.message);
     }
+
+    // Insert column metadata
+    const columnInserts = headers.map((header, index) => ({
+      dataset_id: data.id,
+      column_name: header,
+      column_index: index,
+      data_type: 'text',
+    }));
+
+    const { error: colError } = await supabase
+      .from('dataset_columns')
+      .insert(columnInserts);
+
+    if (colError) {
+      logger.warn('Failed to insert column metadata', { error: colError.message });
+    }
+
+    logger.info('Dataset uploaded', { fileName: file.name, projectId, datasetId: data.id });
+    return data;
   }
 
   async getDataset(datasetId: string) {
-    try {
-      const response = await fetch(`${this.baseUrl}/datasets/${datasetId}`, {
-        headers: this.getHeaders(),
-      });
-      return this.handleResponse(response, `GET /datasets/${datasetId}`);
-    } catch (error) {
-      logger.error('Failed to get dataset', error as Error, { datasetId });
-      throw error;
+    const { data, error } = await supabase
+      .from('datasets')
+      .select('*')
+      .eq('id', datasetId)
+      .single();
+
+    if (error) {
+      logger.error('Failed to get dataset', new Error(error.message), { datasetId });
+      throw new Error(error.message);
     }
+    return data;
   }
 
   async previewDataset(datasetId: string, limit: number = 100) {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/datasets/${datasetId}/preview?limit=${limit}`,
-        {
-          headers: this.getHeaders(),
-        }
-      );
-      return this.handleResponse(response, `GET /datasets/${datasetId}/preview`);
-    } catch (error) {
-      logger.error('Failed to preview dataset', error as Error, { datasetId, limit });
-      throw error;
+    const { data, error } = await supabase
+      .from('datasets')
+      .select('file_data')
+      .eq('id', datasetId)
+      .single();
+
+    if (error) {
+      logger.error('Failed to preview dataset', new Error(error.message), { datasetId });
+      throw new Error(error.message);
     }
+
+    const rows = (data.file_data as Record<string, string>[]) || [];
+    return rows.slice(0, limit);
   }
 
-  // Quality Checks
+  // Quality Dimensions
   async getQualityDimensions(projectId: string) {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/quality/dimensions?project_id=${projectId}`,
-        {
-          headers: this.getHeaders(),
-        }
-      );
-      return this.handleResponse(response, 'GET /quality/dimensions');
-    } catch (error) {
-      logger.error('Failed to get quality dimensions', error as Error, { projectId });
-      throw error;
+    const { data, error } = await supabase
+      .from('quality_dimension_config')
+      .select('*')
+      .order('display_order', { ascending: true });
+
+    if (error) {
+      logger.error('Failed to get quality dimensions', new Error(error.message), { projectId });
+      throw new Error(error.message);
     }
+    return data;
   }
 
-  async createQualityDimension(data: { name: string; key: string; description?: string; icon?: string; is_active?: boolean }) {
-    try {
-      const response = await fetch(`${this.baseUrl}/quality/dimensions`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(data),
-      });
-      logger.info('Creating quality dimension', { key: data.key });
-      return this.handleResponse(response, 'POST /quality/dimensions');
-    } catch (error) {
-      logger.error('Failed to create quality dimension', error as Error, { key: data.key });
-      throw error;
+  async createQualityDimension(dimensionData: {
+    name: string;
+    key: string;
+    description?: string;
+    icon?: string;
+    is_active?: boolean;
+  }) {
+    const { data, error } = await supabase
+      .from('quality_dimension_config')
+      .insert({
+        name: dimensionData.name,
+        key: dimensionData.key,
+        description: dimensionData.description || '',
+        icon: dimensionData.icon || 'check-circle',
+        color: '#14b8a6',
+        is_active: dimensionData.is_active ?? true,
+        display_order: 0,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to create quality dimension', new Error(error.message), { key: dimensionData.key });
+      throw new Error(error.message);
     }
+    logger.info('Created quality dimension', { key: dimensionData.key });
+    return data;
   }
 
-  async updateQualityDimension(dimensionId: string, data: { name?: string; description?: string; icon?: string; is_active?: boolean }) {
-    try {
-      const response = await fetch(`${this.baseUrl}/quality/dimensions/${dimensionId}`, {
-        method: 'PUT',
-        headers: this.getHeaders(),
-        body: JSON.stringify(data),
-      });
-      logger.info('Updating quality dimension', { dimensionId });
-      return this.handleResponse(response, `PUT /quality/dimensions/${dimensionId}`);
-    } catch (error) {
-      logger.error('Failed to update quality dimension', error as Error, { dimensionId });
-      throw error;
+  async updateQualityDimension(dimensionId: string, updates: {
+    name?: string;
+    description?: string;
+    icon?: string;
+    is_active?: boolean;
+  }) {
+    const { data, error } = await supabase
+      .from('quality_dimension_config')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', dimensionId)
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to update quality dimension', new Error(error.message), { dimensionId });
+      throw new Error(error.message);
     }
+    logger.info('Updated quality dimension', { dimensionId });
+    return data;
   }
 
   async deleteQualityDimension(dimensionId: string) {
-    try {
-      const response = await fetch(`${this.baseUrl}/quality/dimensions/${dimensionId}`, {
-        method: 'DELETE',
-        headers: this.getHeaders(),
-      });
-      logger.info('Deleting quality dimension', { dimensionId });
-      return this.handleResponse(response, `DELETE /quality/dimensions/${dimensionId}`);
-    } catch (error) {
-      logger.error('Failed to delete quality dimension', error as Error, { dimensionId });
-      throw error;
+    const { error } = await supabase
+      .from('quality_dimension_config')
+      .delete()
+      .eq('id', dimensionId);
+
+    if (error) {
+      logger.error('Failed to delete quality dimension', new Error(error.message), { dimensionId });
+      throw new Error(error.message);
     }
+    logger.info('Deleted quality dimension', { dimensionId });
+    return {};
   }
 
-  async runQualityChecks(datasetId: string) {
-    try {
-      const response = await fetch(`${this.baseUrl}/quality/run?dataset_id=${datasetId}`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      logger.info('Running quality checks', { datasetId });
-      return this.handleResponse(response, 'POST /quality/run');
-    } catch (error) {
-      logger.error('Failed to run quality checks', error as Error, { datasetId });
-      throw error;
-    }
-  }
-
+  // Quality Results
   async getQualityResults(datasetId: string) {
-    try {
-      const response = await fetch(`${this.baseUrl}/quality/results/${datasetId}`, {
-        headers: this.getHeaders(),
-      });
-      return this.handleResponse(response, `GET /quality/results/${datasetId}`);
-    } catch (error) {
-      logger.error('Failed to get quality results', error as Error, { datasetId });
-      throw error;
+    const { data, error } = await supabase
+      .from('quality_results')
+      .select('*')
+      .eq('dataset_id', datasetId)
+      .order('executed_at', { ascending: false });
+
+    if (error) {
+      logger.error('Failed to get quality results', new Error(error.message), { datasetId });
+      throw new Error(error.message);
     }
+    return data;
+  }
+
+  // Helper: parse CSV line handling quoted values
+  private parseCSVLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
   }
 }
 
-export const apiClient = new ApiClient(API_URL);
+export const apiClient = new ApiClient();
 export default apiClient;
