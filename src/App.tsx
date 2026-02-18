@@ -9,17 +9,8 @@ type Page = 'dashboard' | 'config' | 'records' | 'osdu' | 'upcoming';
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [initialTab, setInitialTab] = useState<'records' | 'score'>('records');
-
-  function navigateToScore(projectId?: string) {
-    setSelectedProjectId(projectId || 'new');
-    setInitialTab('score');
-    setCurrentPage('records');
-  }
-
   function navigateToRecords(projectId: string) {
     setSelectedProjectId(projectId);
-    setInitialTab('records');
     setCurrentPage('records');
   }
 
@@ -98,7 +89,6 @@ function AppContent() {
       <main className="container mx-auto px-6 py-8 flex-1">
         {currentPage === 'dashboard' && (
           <Dashboard
-            onNavigateToScore={navigateToScore}
             onNavigateToRecords={navigateToRecords}
           />
         )}
@@ -106,7 +96,7 @@ function AppContent() {
         {currentPage === 'records' && selectedProjectId && (
           <ProjectView
             projectId={selectedProjectId}
-            initialTab={initialTab}
+            initialTab="records"
             onBack={() => setCurrentPage('dashboard')}
           />
         )}

@@ -66,7 +66,7 @@ export default function QualityDimensionCard({
   }
 
   return (
-    <div className={`${classes.bg} ${classes.border} border-2 rounded-lg overflow-hidden min-h-[400px] flex flex-col transition-all`}>
+    <div className={`${classes.bg} ${classes.border} border-2 rounded-lg min-h-[400px] flex flex-col transition-all`}>
       <div className={`${classes.headerBg} px-4 py-3 border-b-2 ${classes.border}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">

@@ -9,6 +9,7 @@ interface UploadInterfaceProps {
 export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [datasetTitle, setDatasetTitle] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleDragEnter(e: React.DragEvent) {
@@ -116,7 +117,7 @@ export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps
       const text = await file.text();
       const { headers, rows } = parseCSV(text);
 
-      const projectName = file.name.replace(/\.csv$/i, '');
+      const projectName = datasetTitle.trim() || file.name.replace(/\.csv$/i, '');
 
       // Create project via API
       const projectData = await apiClient.createProject(
@@ -138,6 +139,21 @@ export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps
 
   return (
     <div className="bg-white rounded-lg shadow-md p-8">
+      {/* Dataset Title Input */}
+      <div className="mb-6">
+        <label htmlFor="dataset-title" className="block text-sm font-medium text-slate-700 mb-2">
+          Dataset Title
+        </label>
+        <input
+          id="dataset-title"
+          type="text"
+          placeholder="Enter dataset title (optional, defaults to filename)"
+          value={datasetTitle}
+          onChange={(e) => setDatasetTitle(e.target.value)}
+          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
+        />
+      </div>
+
       <div
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}

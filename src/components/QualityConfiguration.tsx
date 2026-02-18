@@ -95,7 +95,7 @@ export default function QualityConfiguration({
 
   async function loadTemplates() {
     try {
-      const dbTemplates = await apiClient.getTemplates() as any[];
+      const dbTemplates = await apiClient.getTemplates(datasetId) as any[];
       if (dbTemplates && dbTemplates.length > 0) {
         const mapped: Template[] = dbTemplates.map((t: any) => ({
           id: t.id,
@@ -213,7 +213,7 @@ export default function QualityConfiguration({
         ),
       };
 
-      const saved = await apiClient.saveTemplate(templateName, templateData);
+      const saved = await apiClient.saveTemplate(templateName, templateData, datasetId);
 
       const newTemplate: Template = {
         id: saved.id,

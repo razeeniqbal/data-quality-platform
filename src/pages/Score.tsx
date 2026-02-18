@@ -91,17 +91,6 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
 
   return (
     <div>
-      {currentStep !== 'upload' && !loading && (
-        <div className="flex items-center justify-end mb-4">
-          <button
-            onClick={handleClearData}
-            className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition"
-          >
-            New Upload
-          </button>
-        </div>
-      )}
-
       {loading ? (
         <div className="text-center py-20 bg-white rounded-lg shadow-md">
           <div className="animate-spin w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4"></div>

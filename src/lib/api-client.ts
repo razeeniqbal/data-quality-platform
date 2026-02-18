@@ -263,11 +263,17 @@ class ApiClient {
   }
 
   // Templates
-  async getTemplates() {
-    const { data, error } = await supabase
+  async getTemplates(datasetId?: string) {
+    let query = supabase
       .from('quality_templates')
       .select('*')
       .order('created_at', { ascending: false });
+
+    if (datasetId) {
+      query = query.eq('dataset_id', datasetId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       logger.error('Failed to get templates', new Error(error.message));
@@ -276,12 +282,13 @@ class ApiClient {
     return data;
   }
 
-  async saveTemplate(name: string, templateData: Record<string, any>) {
+  async saveTemplate(name: string, templateData: Record<string, any>, datasetId?: string) {
     const { data, error } = await supabase
       .from('quality_templates')
       .insert({
         name,
         template_data: templateData,
+        ...(datasetId ? { dataset_id: datasetId } : {}),
       })
       .select()
       .single();

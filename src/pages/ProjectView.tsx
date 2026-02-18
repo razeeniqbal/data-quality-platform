@@ -13,17 +13,14 @@ interface ProjectViewProps {
 }
 
 export default function ProjectView({ projectId, initialTab = 'records', onBack }: ProjectViewProps) {
-  const isNewProject = projectId === 'new';
   const [activeTab, setActiveTab] = useState<ProjectTab>(initialTab);
-  const [projectName, setProjectName] = useState(isNewProject ? 'New Project' : '');
-  const [actualProjectId, setActualProjectId] = useState<string | null>(isNewProject ? null : projectId);
+  const [projectName, setProjectName] = useState('');
+  const [actualProjectId] = useState<string | null>(projectId);
   const [datasetId, setDatasetId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!isNewProject);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isNewProject) {
-      loadProject();
-    }
+    loadProject();
   }, [projectId]);
 
   async function loadProject() {
@@ -41,10 +38,6 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
     } finally {
       setLoading(false);
     }
-  }
-
-  function handleDatasetCreated(id: string) {
-    setDatasetId(id);
   }
 
   if (loading) {
@@ -107,7 +100,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
         <Records projectId={actualProjectId || ''} datasetId={datasetId} />
       )}
       {activeTab === 'score' && (
-        <Score projectId={actualProjectId} onDatasetCreated={handleDatasetCreated} />
+        <Score projectId={actualProjectId} />
       )}
     </div>
   );
