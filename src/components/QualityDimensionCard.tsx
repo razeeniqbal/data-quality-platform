@@ -91,7 +91,7 @@ export default function QualityDimensionCard({
             )}
             {hasColumns && (
               <>
-                {isReadyType ? (
+                {isReadyType || allConfigured ? (
                   <CheckCircle className="w-5 h-5 text-green-600" />
                 ) : (
                   <AlertCircle className="w-5 h-5 text-red-600" />
@@ -195,8 +195,8 @@ export default function QualityDimensionCard({
               {columns.length} attribute{columns.length !== 1 ? 's' : ''}
             </span>
             {hasColumns && (
-              <span className={`text-xs font-semibold ${isReadyType ? 'text-green-600' : 'text-red-600'}`}>
-                {isReadyType ? '✓ Ready to execute' : '⚠ Configuration needed'}
+              <span className={`text-xs font-semibold ${isReadyType || allConfigured ? 'text-green-600' : 'text-red-600'}`}>
+                {isReadyType || allConfigured ? '✓ Ready to execute' : '⚠ Configuration needed'}
               </span>
             )}
           </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Upload, Grid3x3, Crown, Edit, Eye, Users } from 'lucide-react';
+import { Search, Upload, Grid3x3, Crown, Edit, Eye, Users, Trash2 } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 import type { Project } from '../types/database';
 
@@ -59,6 +59,19 @@ export default function Dashboard({ onNavigateToScore, onNavigateToRecords }: Da
         return 'bg-blue-100 text-blue-700 border-blue-300';
       case 'viewer':
         return 'bg-slate-100 text-slate-700 border-slate-300';
+    }
+  }
+
+  async function handleDeleteProject(e: React.MouseEvent, projectId: string) {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
+
+    try {
+      await apiClient.deleteProject(projectId);
+      setMyProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      alert('Failed to delete project.');
     }
   }
 
@@ -184,6 +197,13 @@ export default function Dashboard({ onNavigateToScore, onNavigateToRecords }: Da
                     {getRoleIcon(project.role)}
                     <span className="capitalize">{project.role}</span>
                   </div>
+                  <button
+                    onClick={(e) => handleDeleteProject(e, project.id)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100"
+                    title="Delete project"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 

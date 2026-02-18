@@ -1,23 +1,25 @@
 import { useState } from 'react';
 import Dashboard from './pages/Dashboard';
-import Score from './pages/Score';
 import DimensionConfig from './pages/DimensionConfig';
-import Records from './pages/Records';
-import { LayoutGrid, Target, Network, Layers, Settings } from 'lucide-react';
+import ProjectView from './pages/ProjectView';
+import { LayoutGrid, Network, Layers, Settings } from 'lucide-react';
 
-type Page = 'dashboard' | 'score' | 'config' | 'records' | 'osdu' | 'upcoming';
+type Page = 'dashboard' | 'config' | 'records' | 'osdu' | 'upcoming';
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [initialTab, setInitialTab] = useState<'records' | 'score'>('records');
 
   function navigateToScore(projectId?: string) {
-    setSelectedProjectId(projectId || null);
-    setCurrentPage('score');
+    setSelectedProjectId(projectId || 'new');
+    setInitialTab('score');
+    setCurrentPage('records');
   }
 
   function navigateToRecords(projectId: string) {
     setSelectedProjectId(projectId);
+    setInitialTab('records');
     setCurrentPage('records');
   }
 
@@ -55,17 +57,6 @@ function AppContent() {
             >
               <LayoutGrid className="w-5 h-5" />
               <span className="font-medium">Dashboard</span>
-            </button>
-            <button
-              onClick={() => setCurrentPage('score')}
-              className={`flex items-center space-x-2 px-4 py-3 transition border-b-2 ${
-                currentPage === 'score'
-                  ? 'border-teal-400 text-white bg-slate-600'
-                  : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-600'
-              }`}
-            >
-              <Target className="w-5 h-5" />
-              <span className="font-medium">Score</span>
             </button>
             <button
               onClick={() => setCurrentPage('config')}
@@ -111,11 +102,11 @@ function AppContent() {
             onNavigateToRecords={navigateToRecords}
           />
         )}
-        {currentPage === 'score' && <Score projectId={selectedProjectId} />}
         {currentPage === 'config' && <DimensionConfig />}
         {currentPage === 'records' && selectedProjectId && (
-          <Records
+          <ProjectView
             projectId={selectedProjectId}
+            initialTab={initialTab}
             onBack={() => setCurrentPage('dashboard')}
           />
         )}

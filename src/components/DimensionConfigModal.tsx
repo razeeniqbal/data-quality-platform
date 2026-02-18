@@ -89,6 +89,7 @@ export default function DimensionConfigModal({
                 <option value="range">Range</option>
                 <option value="list">Allowed Values List</option>
                 <option value="datatype">Data Type</option>
+                <option value="sign">Sign (Positive / Negative)</option>
               </select>
             </div>
 
@@ -180,6 +181,27 @@ export default function DimensionConfigModal({
                 </select>
               </div>
             )}
+
+            {config.validationType === 'sign' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Expected Sign
+                </label>
+                <select
+                  value={config.expectedSign || 'positive'}
+                  onChange={(e) =>
+                    setConfig({ ...config, expectedSign: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                >
+                  <option value="positive">All Positive (&ge; 0)</option>
+                  <option value="negative">All Negative (&lt; 0)</option>
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  All numeric values in this column must match the selected sign. Non-numeric values will be marked as failed.
+                </p>
+              </div>
+            )}
           </div>
         );
 
@@ -188,169 +210,136 @@ export default function DimensionConfigModal({
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                Consistency Check Type
+                Reference Data Source
               </label>
               <select
-                value={config.consistencyType || 'format'}
+                value={config.referenceSource || 'csv'}
                 onChange={(e) =>
-                  setConfig({ ...config, consistencyType: e.target.value })
+                  setConfig({ ...config, referenceSource: e.target.value })
                 }
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
               >
-                <option value="format">Format Consistency</option>
-                <option value="cross-field">Cross-Field Validation</option>
-                <option value="reference">Reference Data</option>
+                <option value="csv">Upload CSV File</option>
+                <option value="database">Database (Existing Dataset)</option>
               </select>
+              <p className="text-xs text-slate-500 mt-1">
+                Values in this column will be checked against the reference data. Any value not found in the reference will fail.
+              </p>
             </div>
 
-            {config.consistencyType === 'format' && (
+            {config.referenceSource === 'csv' && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Expected Format Pattern
+                  Upload Reference CSV
                 </label>
-                <input
-                  type="text"
-                  value={config.formatPattern || ''}
-                  onChange={(e) =>
-                    setConfig({ ...config, formatPattern: e.target.value })
-                  }
-                  placeholder="e.g., YYYY-MM-DD"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                />
+                <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-teal-500 transition">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="csv-upload"
+                  />
+                  <label
+                    htmlFor="csv-upload"
+                    className="cursor-pointer flex flex-col items-center"
+                  >
+                    {filePreview ? (
+                      <>
+                        <CheckCircle className="w-12 h-12 text-green-500 mb-3" />
+                        <p className="text-sm font-medium text-slate-700 mb-1">
+                          {filePreview.fileName}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {filePreview.rowCount} rows, {filePreview.columns.length} columns
+                        </p>
+                        <p className="text-xs text-slate-400 mt-2">
+                          Columns: {filePreview.columns.join(', ')}
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-3 text-xs text-teal-600 hover:text-teal-700"
+                        >
+                          Click to change file
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-12 h-12 text-slate-400 mb-3" />
+                        <p className="text-sm font-medium text-slate-700 mb-1">
+                          Click to upload reference CSV
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          CSV file containing valid reference values
+                        </p>
+                      </>
+                    )}
+                  </label>
+                </div>
+
+                {filePreview && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Match Column (from reference file)
+                    </label>
+                    <select
+                      value={config.referenceMatchColumn || ''}
+                      onChange={(e) =>
+                        setConfig({ ...config, referenceMatchColumn: e.target.value })
+                      }
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                    >
+                      <option value="">Select column to match against</option>
+                      {filePreview.columns.map((col) => (
+                        <option key={col} value={col}>
+                          {col}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Select which column from the reference file to validate against
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
-            {config.consistencyType === 'cross-field' && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Related Field for Validation
-                </label>
-                <input
-                  type="text"
-                  value={config.relatedField || ''}
-                  onChange={(e) =>
-                    setConfig({ ...config, relatedField: e.target.value })
-                  }
-                  placeholder="e.g., end_date"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                />
-                <p className="text-xs text-slate-500 mt-1">
-                  Specify another column to validate against
-                </p>
-              </div>
-            )}
-
-            {config.consistencyType === 'reference' && (
+            {config.referenceSource === 'database' && (
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Reference Data Source
+                    Dataset ID
                   </label>
-                  <select
-                    value={config.referenceSource || 'manual'}
+                  <input
+                    type="text"
+                    value={config.referenceDatasetId || ''}
                     onChange={(e) =>
-                      setConfig({ ...config, referenceSource: e.target.value })
+                      setConfig({ ...config, referenceDatasetId: e.target.value })
                     }
+                    placeholder="Enter the dataset ID from an existing project"
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                  >
-                    <option value="manual">Manual Entry</option>
-                    <option value="csv">Upload CSV File</option>
-                  </select>
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    The ID of an existing dataset in the database to use as reference
+                  </p>
                 </div>
-
-                {config.referenceSource === 'manual' && (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Reference Values (comma-separated)
-                    </label>
-                    <textarea
-                      value={config.referenceValues || ''}
-                      onChange={(e) =>
-                        setConfig({ ...config, referenceValues: e.target.value })
-                      }
-                      placeholder="e.g., USD, EUR, GBP"
-                      rows={3}
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                    />
-                  </div>
-                )}
-
-                {config.referenceSource === 'csv' && (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Upload Master CSV
-                    </label>
-                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-teal-500 transition">
-                      <input
-                        type="file"
-                        accept=".csv"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                        id="csv-upload"
-                      />
-                      <label
-                        htmlFor="csv-upload"
-                        className="cursor-pointer flex flex-col items-center"
-                      >
-                        {filePreview ? (
-                          <>
-                            <CheckCircle className="w-12 h-12 text-green-500 mb-3" />
-                            <p className="text-sm font-medium text-slate-700 mb-1">
-                              {filePreview.fileName}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {filePreview.rowCount} rows, {filePreview.columns.length} columns
-                            </p>
-                            <p className="text-xs text-slate-400 mt-2">
-                              Columns: {filePreview.columns.join(', ')}
-                            </p>
-                            <button
-                              type="button"
-                              className="mt-3 text-xs text-teal-600 hover:text-teal-700"
-                            >
-                              Click to change file
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-12 h-12 text-slate-400 mb-3" />
-                            <p className="text-sm font-medium text-slate-700 mb-1">
-                              Click to upload master CSV
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              CSV file containing reference data for validation
-                            </p>
-                          </>
-                        )}
-                      </label>
-                    </div>
-
-                    {filePreview && (
-                      <div className="mt-3">
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          Match Column (from reference file)
-                        </label>
-                        <select
-                          value={config.referenceMatchColumn || ''}
-                          onChange={(e) =>
-                            setConfig({ ...config, referenceMatchColumn: e.target.value })
-                          }
-                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                        >
-                          <option value="">Select column to match against</option>
-                          {filePreview.columns.map((col) => (
-                            <option key={col} value={col}>
-                              {col}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Select which column from the reference file to validate against
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Reference Column Name
+                  </label>
+                  <input
+                    type="text"
+                    value={config.referenceDbColumn || ''}
+                    onChange={(e) =>
+                      setConfig({ ...config, referenceDbColumn: e.target.value })
+                    }
+                    placeholder="e.g., country_code"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    The column name in the reference dataset to validate against
+                  </p>
+                </div>
               </div>
             )}
           </div>

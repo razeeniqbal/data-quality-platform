@@ -9,13 +9,15 @@ type ScoreStep = 'upload' | 'configure' | 'results';
 
 interface ScoreProps {
   projectId?: string | null;
+  onDatasetCreated?: (datasetId: string) => void;
 }
 
-export default function Score({ projectId }: ScoreProps) {
+export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
   const [currentStep, setCurrentStep] = useState<ScoreStep>('upload');
   const [uploadedData, setUploadedData] = useState<any>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [executionResults, setExecutionResults] = useState<any[] | null>(null);
 
   useEffect(() => {
     if (projectId) {
@@ -30,11 +32,34 @@ export default function Score({ projectId }: ScoreProps) {
   async function loadProjectData(projId: string) {
     setLoading(true);
     try {
-      const project = await apiClient.getProject(projId) as any;
+      const datasets = await apiClient.getProjectDatasets(projId) as any[];
 
-      if (project) {
-        setCurrentStep('upload');
+      if (datasets && datasets.length > 0) {
+        const dataset = datasets[0];
+        const rows = await apiClient.previewDataset(dataset.id, 10000) as Record<string, any>[];
+
+        if (rows && rows.length > 0) {
+          const headers = Object.keys(rows[0]);
+          setUploadedData({ headers, rows });
+          setDatasetId(dataset.id);
+
+          // Check if quality results already exist for this dataset
+          try {
+            const existingResults = await apiClient.getQualityResults(dataset.id) as any[];
+            if (existingResults && existingResults.length > 0) {
+              setCurrentStep('results');
+              return;
+            }
+          } catch {
+            // If check fails, fall through to configure step
+          }
+
+          setCurrentStep('configure');
+          return;
+        }
       }
+
+      setCurrentStep('upload');
     } catch (error) {
       console.error('Error loading project data:', error);
       setCurrentStep('upload');
@@ -47,31 +72,35 @@ export default function Score({ projectId }: ScoreProps) {
     setUploadedData(data);
     setDatasetId(id);
     setCurrentStep('configure');
+    onDatasetCreated?.(id);
   }
 
-  function handleExecuteRules() {
+  function handleExecuteRules(results?: any[]) {
+    if (results) {
+      setExecutionResults(results);
+    }
     setCurrentStep('results');
   }
 
   function handleClearData() {
     setUploadedData(null);
     setDatasetId(null);
+    setExecutionResults(null);
     setCurrentStep('upload');
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-slate-800">Score</h1>
-        {currentStep !== 'upload' && !loading && (
+      {currentStep !== 'upload' && !loading && (
+        <div className="flex items-center justify-end mb-4">
           <button
             onClick={handleClearData}
             className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition"
           >
             New Upload
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center py-20 bg-white rounded-lg shadow-md">
@@ -96,7 +125,7 @@ export default function Score({ projectId }: ScoreProps) {
       )}
 
       {!loading && currentStep === 'results' && datasetId && (
-        <ResultsView datasetId={datasetId} onBack={() => setCurrentStep('configure')} />
+        <ResultsView datasetId={datasetId} initialResults={executionResults} onBack={() => setCurrentStep('configure')} />
       )}
     </div>
   );

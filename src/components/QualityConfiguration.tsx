@@ -3,6 +3,7 @@ import { AlertCircle, Save, Play } from 'lucide-react';
 import type { QualityDimension, QualityDimensionConfig, Template } from '../types/database';
 import QualityDimensionCard from './QualityDimensionCard';
 import DimensionConfigModal from './DimensionConfigModal';
+import { apiClient } from '../lib/api-client';
 
 interface QualityConfigurationProps {
   data: {
@@ -13,7 +14,14 @@ interface QualityConfigurationProps {
   onExecute: (results: QualityCheckResult[]) => void;
 }
 
-interface QualityCheckResult {
+export interface RowDetail {
+  rowIndex: number;
+  value: string | number | boolean | null;
+  passed: boolean;
+  reason?: string;
+}
+
+export interface QualityCheckResult {
   id: string;
   column_name: string;
   dimension: QualityDimension;
@@ -21,6 +29,7 @@ interface QualityCheckResult {
   failed_count: number;
   total_count: number;
   score: number;
+  rowDetails?: RowDetail[];
 }
 
 interface DimensionRules {
@@ -29,7 +38,7 @@ interface DimensionRules {
 
 export default function QualityConfiguration({
   data,
-  datasetId: _datasetId,
+  datasetId,
   onExecute,
 }: QualityConfigurationProps) {
   const [dimensions, setDimensions] = useState<QualityDimensionConfig[]>([]);
@@ -43,6 +52,7 @@ export default function QualityConfiguration({
   const [templateName, setTemplateName] = useState('');
   const [hasTemplateAction, setHasTemplateAction] = useState(false);
   const [configuredColumns, setConfiguredColumns] = useState<Map<string, Set<string>>>(new Map());
+  const [columnConfigs, setColumnConfigs] = useState<Map<string, Record<string, any>>>(new Map());
   const [configModal, setConfigModal] = useState<{
     isOpen: boolean;
     dimension: QualityDimension | null;
@@ -57,6 +67,7 @@ export default function QualityConfiguration({
 
   useEffect(() => {
     loadDimensions();
+    loadTemplates();
   }, []);
 
   async function loadDimensions() {
@@ -82,6 +93,23 @@ export default function QualityConfiguration({
     }
   }
 
+  async function loadTemplates() {
+    try {
+      const dbTemplates = await apiClient.getTemplates() as any[];
+      if (dbTemplates && dbTemplates.length > 0) {
+        const mapped: Template[] = dbTemplates.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          rules: t.template_data,
+          created_at: t.created_at,
+        }));
+        setTemplates(mapped);
+      }
+    } catch (error) {
+      console.error('Error loading templates:', error);
+    }
+  }
+
   function handleAddColumn(dimension: QualityDimension, column: string) {
     setDimensionRules((prev) => ({
       ...prev,
@@ -103,6 +131,7 @@ export default function QualityConfiguration({
     });
     setDimensionRules(clearedRules);
     setConfiguredColumns(new Map());
+    setColumnConfigs(new Map());
     setHasTemplateAction(false);
     setSelectedTemplate('');
   }
@@ -117,7 +146,7 @@ export default function QualityConfiguration({
     });
   }
 
-  async function handleSaveConfiguration(_config: Record<string, string | number | boolean>, _referenceFile?: File) {
+  async function handleSaveConfiguration(config: Record<string, string | number | boolean>, referenceFile?: File) {
     if (!configModal.dimension || !configModal.column) return;
 
     try {
@@ -128,6 +157,31 @@ export default function QualityConfiguration({
       }
       newConfiguredColumns.get(configModal.dimension)!.add(configModal.column);
       setConfiguredColumns(newConfiguredColumns);
+
+      // Store the config data for use during execution
+      const configKey = `${configModal.dimension}:${configModal.column}`;
+      const configToStore: Record<string, any> = { ...config };
+
+      // If consistency with CSV, parse and store the reference values from the file
+      if (configModal.dimension === 'consistency' && config.referenceSource === 'csv' && referenceFile) {
+        const text = await referenceFile.text();
+        const lines = text.split('\n').filter(line => line.trim());
+        const headers = lines[0].split(',').map(h => h.trim());
+        const matchCol = config.referenceMatchColumn as string;
+        const colIndex = headers.indexOf(matchCol);
+
+        if (colIndex >= 0) {
+          const refValues = lines.slice(1).map(line => {
+            const values = line.split(',').map(v => v.trim());
+            return values[colIndex] || '';
+          }).filter(v => v !== '');
+          configToStore.parsedReferenceValues = refValues;
+        }
+      }
+
+      const newColumnConfigs = new Map(columnConfigs);
+      newColumnConfigs.set(configKey, configToStore);
+      setColumnConfigs(newColumnConfigs);
 
       alert('Configuration saved successfully!');
     } catch (error) {
@@ -152,18 +206,24 @@ export default function QualityConfiguration({
 
     setIsSavingTemplate(true);
     try {
+      const templateData = {
+        dimensionRules,
+        configuredColumns: Object.fromEntries(
+          Array.from(configuredColumns.entries()).map(([key, set]) => [key, Array.from(set)])
+        ),
+      };
+
+      const saved = await apiClient.saveTemplate(templateName, templateData);
+
       const newTemplate: Template = {
-        id: Date.now().toString(),
+        id: saved.id,
         name: templateName,
-        rules: {
-          dimensionRules,
-          configuredColumns: Object.fromEntries(
-            Array.from(configuredColumns.entries()).map(([key, set]) => [key, Array.from(set)])
-          ),
-        },
+        rules: templateData,
+        created_at: saved.created_at,
       };
 
       setTemplates([...templates, newTemplate]);
+      setSelectedTemplate(saved.id);
       setHasTemplateAction(true);
       alert('Template saved successfully!');
       setTemplateName('');
@@ -213,9 +273,16 @@ export default function QualityConfiguration({
       for (const dimension of dimensions) {
         const columns = dimensionRules[dimension.key] || [];
         for (const column of columns) {
-          const result = executeRule(dimension.key, column, data.rows);
+          const result = await executeRule(dimension.key, column, data.rows);
           results.push(result);
         }
+      }
+
+      // Save results to database
+      try {
+        await apiClient.saveQualityResults(datasetId, results);
+      } catch (saveError) {
+        console.error('Error saving results to database:', saveError);
       }
 
       onExecute(results);
@@ -227,33 +294,140 @@ export default function QualityConfiguration({
     }
   }
 
-  function executeRule(dimensionKey: string, columnName: string, rows: Array<Record<string, string | number | boolean | null>>): QualityCheckResult {
+  async function executeRule(dimensionKey: string, columnName: string, rows: Array<Record<string, string | number | boolean | null>>): Promise<QualityCheckResult> {
     let passedCount = 0;
     let failedCount = 0;
+    const rowDetails: RowDetail[] = [];
 
     if (dimensionKey === 'completeness') {
-      for (const row of rows) {
+      rows.forEach((row, i) => {
         const value = row[columnName];
-        if (value && String(value).trim() !== '') {
-          passedCount++;
-        } else {
-          failedCount++;
-        }
-      }
+        const passed = !!(value && String(value).trim() !== '');
+        if (passed) passedCount++; else failedCount++;
+        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Value is empty or null' });
+      });
     } else if (dimensionKey === 'uniqueness') {
       const values = new Set();
-      for (const row of rows) {
+      rows.forEach((row, i) => {
         const value = row[columnName];
-        if (value && !values.has(value)) {
-          values.add(value);
-          passedCount++;
-        } else {
-          failedCount++;
+        const passed = !!(value && !values.has(value));
+        if (passed) { values.add(value); passedCount++; } else { failedCount++; }
+        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Duplicate value' });
+      });
+    } else if (dimensionKey === 'validity') {
+      const configKey = `${dimensionKey}:${columnName}`;
+      const colConfig = columnConfigs.get(configKey);
+
+      if (colConfig?.validationType === 'sign') {
+        const expectPositive = colConfig.expectedSign !== 'negative';
+        rows.forEach((row, i) => {
+          const value = row[columnName];
+          const num = Number(value);
+          let passed = false;
+          let reason = '';
+          if (value === null || value === '' || isNaN(num)) {
+            reason = 'Not a valid number';
+          } else if (expectPositive ? num >= 0 : num < 0) {
+            passed = true;
+          } else {
+            reason = expectPositive ? 'Expected positive value' : 'Expected negative value';
+          }
+          if (passed) passedCount++; else failedCount++;
+          rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : reason });
+        });
+      } else if (colConfig?.validationType === 'pattern') {
+        const regex = new RegExp(colConfig.pattern as string);
+        rows.forEach((row, i) => {
+          const value = String(row[columnName] ?? '');
+          const passed = regex.test(value);
+          if (passed) passedCount++; else failedCount++;
+          rowDetails.push({ rowIndex: i, value: row[columnName], passed, reason: passed ? undefined : `Does not match pattern: ${colConfig.pattern}` });
+        });
+      } else if (colConfig?.validationType === 'range') {
+        const min = Number(colConfig.minValue);
+        const max = Number(colConfig.maxValue);
+        rows.forEach((row, i) => {
+          const num = Number(row[columnName]);
+          const passed = !isNaN(num) && num >= min && num <= max;
+          if (passed) passedCount++; else failedCount++;
+          rowDetails.push({ rowIndex: i, value: row[columnName], passed, reason: passed ? undefined : `Value out of range [${min}, ${max}]` });
+        });
+      } else if (colConfig?.validationType === 'list') {
+        const allowed = String(colConfig.allowedValues || '').split(',').map(v => v.trim());
+        rows.forEach((row, i) => {
+          const value = String(row[columnName] ?? '').trim();
+          const passed = allowed.includes(value);
+          if (passed) passedCount++; else failedCount++;
+          rowDetails.push({ rowIndex: i, value: row[columnName], passed, reason: passed ? undefined : 'Value not in allowed list' });
+        });
+      } else if (colConfig?.validationType === 'datatype') {
+        rows.forEach((row, i) => {
+          const value = row[columnName];
+          let passed = false;
+          switch (colConfig.dataType) {
+            case 'number': passed = value !== null && value !== '' && !isNaN(Number(value)); break;
+            case 'email': passed = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? '')); break;
+            case 'url': passed = /^https?:\/\/.+/.test(String(value ?? '')); break;
+            case 'date': passed = !isNaN(Date.parse(String(value ?? ''))); break;
+            default: passed = value !== null && value !== '';
+          }
+          if (passed) passedCount++; else failedCount++;
+          rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : `Invalid ${colConfig.dataType}` });
+        });
+      } else {
+        passedCount = rows.length;
+        rows.forEach((row, i) => {
+          rowDetails.push({ rowIndex: i, value: row[columnName], passed: true });
+        });
+      }
+    } else if (dimensionKey === 'consistency') {
+      const configKey = `${dimensionKey}:${columnName}`;
+      const colConfig = columnConfigs.get(configKey);
+
+      let referenceValues: Set<string> = new Set();
+
+      if (colConfig?.referenceSource === 'csv' && colConfig.parsedReferenceValues) {
+        referenceValues = new Set((colConfig.parsedReferenceValues as string[]).map(v => String(v).trim().toLowerCase()));
+      } else if (colConfig?.referenceSource === 'database' && colConfig.referenceDatasetId && colConfig.referenceDbColumn) {
+        try {
+          const refRows = await apiClient.previewDataset(colConfig.referenceDatasetId as string, 100000) as Record<string, any>[];
+          const refCol = colConfig.referenceDbColumn as string;
+          for (const refRow of refRows) {
+            const val = refRow[refCol];
+            if (val !== null && val !== undefined && String(val).trim() !== '') {
+              referenceValues.add(String(val).trim().toLowerCase());
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching reference dataset:', error);
+          failedCount = rows.length;
+          rows.forEach((row, i) => {
+            rowDetails.push({ rowIndex: i, value: row[columnName], passed: false, reason: 'Reference data fetch failed' });
+          });
         }
       }
+
+      if (referenceValues.size > 0) {
+        rows.forEach((row, i) => {
+          const value = row[columnName];
+          let passed = false;
+          if (value !== null && value !== undefined && String(value).trim() !== '') {
+            passed = referenceValues.has(String(value).trim().toLowerCase());
+          }
+          if (passed) passedCount++; else failedCount++;
+          rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Value not found in reference data' });
+        });
+      } else if (failedCount === 0) {
+        passedCount = rows.length;
+        rows.forEach((row, i) => {
+          rowDetails.push({ rowIndex: i, value: row[columnName], passed: true });
+        });
+      }
     } else {
-      // Default: assume all pass for unconfigured dimensions
       passedCount = rows.length;
+      rows.forEach((row, i) => {
+        rowDetails.push({ rowIndex: i, value: row[columnName], passed: true });
+      });
     }
 
     const totalCount = passedCount + failedCount;
@@ -267,6 +441,7 @@ export default function QualityConfiguration({
       failed_count: failedCount,
       total_count: totalCount,
       score: score,
+      rowDetails,
     };
   }
 
@@ -287,7 +462,7 @@ export default function QualityConfiguration({
     const logicMap: Record<string, string> = {
       completeness: 'Checks if all values in the selected attributes are present and not null or empty.',
       uniqueness: 'Verifies that all values in the selected attributes are unique with no duplicates.',
-      consistency: 'Validates data against defined patterns or reference datasets.',
+      consistency: 'Checks values against reference data from an uploaded CSV or an existing database dataset.',
       validity: 'Ensures data meets specific validation rules.',
     };
     return logicMap[dimensionKey] || 'Quality validation logic for this dimension';
@@ -338,23 +513,31 @@ export default function QualityConfiguration({
             <span>Save Template</span>
           </button>
         </div>
-        <button
-          onClick={handleExecute}
-          disabled={totalConfigured === 0 || isExecuting || !hasTemplateAction}
-          className="px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center space-x-2"
-        >
-          {isExecuting ? (
-            <>
-              <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
-              <span>Executing...</span>
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4" />
-              <span>Execute</span>
-            </>
+        <div className="relative group">
+          <button
+            onClick={handleExecute}
+            disabled={totalConfigured === 0 || isExecuting || !hasTemplateAction}
+            className="px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center space-x-2"
+          >
+            {isExecuting ? (
+              <>
+                <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+                <span>Executing...</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" />
+                <span>Execute</span>
+              </>
+            )}
+          </button>
+          {!hasTemplateAction && totalConfigured > 0 && (
+            <div className="absolute bottom-full right-0 mb-2 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+              Please save or select a template before executing quality checks.
+              <div className="absolute -bottom-1 right-6 w-2 h-2 bg-slate-800 transform rotate-45"></div>
+            </div>
           )}
-        </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">

@@ -29,7 +29,6 @@ class ApiClient {
       .insert({
         name,
         description: description || '',
-        owner_id: '00000000-0000-0000-0000-000000000000',
       })
       .select()
       .single();
@@ -88,6 +87,21 @@ class ApiClient {
   }
 
   // Datasets
+  async getProjectDatasets(projectId: string) {
+    const { data, error } = await supabase
+      .from('datasets')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      logger.error('Failed to get project datasets', new Error(error.message), { projectId });
+      throw new Error(error.message);
+    }
+    logger.debug('GET project datasets', { projectId, count: data?.length });
+    return data;
+  }
+
   async uploadDataset(projectId: string, file: File) {
     const text = await file.text();
     const lines = text.trim().split('\n');
@@ -108,7 +122,6 @@ class ApiClient {
       .insert({
         project_id: projectId,
         name: file.name.replace(/\.csv$/i, ''),
-        file_name: file.name,
         row_count: rows.length,
         column_count: headers.length,
         file_data: rows,
@@ -249,7 +262,95 @@ class ApiClient {
     return {};
   }
 
+  // Templates
+  async getTemplates() {
+    const { data, error } = await supabase
+      .from('quality_templates')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      logger.error('Failed to get templates', new Error(error.message));
+      throw new Error(error.message);
+    }
+    return data;
+  }
+
+  async saveTemplate(name: string, templateData: Record<string, any>) {
+    const { data, error } = await supabase
+      .from('quality_templates')
+      .insert({
+        name,
+        template_data: templateData,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to save template', new Error(error.message), { name });
+      throw new Error(error.message);
+    }
+    logger.info('Saved template', { name, id: data.id });
+    return data;
+  }
+
+  async deleteTemplate(templateId: string) {
+    const { error } = await supabase
+      .from('quality_templates')
+      .delete()
+      .eq('id', templateId);
+
+    if (error) {
+      logger.error('Failed to delete template', new Error(error.message), { templateId });
+      throw new Error(error.message);
+    }
+    logger.info('Deleted template', { templateId });
+    return {};
+  }
+
   // Quality Results
+  async saveQualityResults(datasetId: string, results: Array<{
+    column_name: string;
+    dimension: string;
+    passed_count: number;
+    failed_count: number;
+    total_count: number;
+    score: number;
+  }>) {
+    // Delete previous results for this dataset first
+    const { error: deleteError } = await supabase
+      .from('quality_results')
+      .delete()
+      .eq('dataset_id', datasetId);
+
+    if (deleteError) {
+      logger.warn('Failed to clear old results', { error: deleteError.message });
+    }
+
+    const rows = results.map(r => ({
+      dataset_id: datasetId,
+      column_name: r.column_name,
+      dimension: r.dimension,
+      passed_count: r.passed_count,
+      failed_count: r.failed_count,
+      total_count: r.total_count,
+      score: r.score,
+      executed_at: new Date().toISOString(),
+    }));
+
+    const { data, error } = await supabase
+      .from('quality_results')
+      .insert(rows)
+      .select();
+
+    if (error) {
+      logger.error('Failed to save quality results', new Error(error.message), { datasetId });
+      throw new Error(error.message);
+    }
+    logger.info('Saved quality results', { datasetId, count: data.length });
+    return data;
+  }
+
   async getQualityResults(datasetId: string) {
     const { data, error } = await supabase
       .from('quality_results')
