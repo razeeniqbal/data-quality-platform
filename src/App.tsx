@@ -29,7 +29,7 @@ function AppContent() {
             </div>
             <div className="text-sm text-right">
               <div className="text-teal-50">DEVELOPMENT v1.0.00</div>
-              <div className="text-xs text-teal-100">AEM ENERGY SOLUTION</div>
+              <div className="text-xs text-teal-100">AEM ENERGY SOLUTIONS</div>
             </div>
           </div>
         </div>
