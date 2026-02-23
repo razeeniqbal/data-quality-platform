@@ -1,21 +1,22 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '../lib/api-client';
-import { Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Search } from 'lucide-react';
+import type { ColumnValueFilters } from './ProjectView';
 
 interface RecordsProps {
   projectId: string;
   datasetId: string | null;
+  columnValueFilters?: ColumnValueFilters;
+  onDataLoaded?: (rows: Record<string, any>[], columns: string[]) => void;
 }
 
-export default function Records({ projectId, datasetId }: RecordsProps) {
+export default function Records({ projectId, datasetId, columnValueFilters, onDataLoaded }: RecordsProps) {
   const [records, setRecords] = useState<Record<string, any>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
-  const [filteredRecords, setFilteredRecords] = useState<Record<string, any>[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showFilters, setShowFilters] = useState(true);
 
   useEffect(() => {
     if (datasetId) {
@@ -27,20 +28,19 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
     }
   }, [datasetId]);
 
-  useEffect(() => {
-    applyFilters();
-  }, [records, searchQuery]);
-
   async function loadRecords() {
     setLoading(true);
     try {
       const rows = await apiClient.previewDataset(datasetId!, 10000) as Record<string, any>[];
       if (rows && rows.length > 0) {
-        setColumns(Object.keys(rows[0]));
+        const cols = Object.keys(rows[0]);
+        setColumns(cols);
         setRecords(rows);
+        onDataLoaded?.(rows, cols);
       } else {
         setColumns([]);
         setRecords([]);
+        onDataLoaded?.([], []);
       }
     } catch (error) {
       console.error('Error loading records:', error);
@@ -49,32 +49,43 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
     }
   }
 
-  function applyFilters() {
-    let filtered = [...records];
+  // Apply sidebar column-value filters + search query
+  const filteredRecords = (() => {
+    let rows = records;
 
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(r =>
-        Object.values(r).some(val =>
-          String(val ?? '').toLowerCase().includes(query)
+    // 1. Column value filters from sidebar
+    if (columnValueFilters && Object.keys(columnValueFilters).length > 0) {
+      rows = rows.filter(row =>
+        Object.entries(columnValueFilters).every(([col, allowed]) =>
+          allowed.has(String(row[col] ?? ''))
         )
       );
     }
 
-    setFilteredRecords(filtered);
+    // 2. Global search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      rows = rows.filter(row =>
+        Object.values(row).some(val => String(val ?? '').toLowerCase().includes(q))
+      );
+    }
+
+    return rows;
+  })();
+
+  // Reset to page 1 when filters or search change
+  useEffect(() => {
     setCurrentPage(1);
-  }
+  }, [columnValueFilters, searchQuery]);
 
   function exportToCSV() {
     if (columns.length === 0) return;
-
     const csvContent = [
       columns.join(','),
       ...filteredRecords.map(row =>
         columns.map(col => `"${String(row[col] ?? '').replace(/"/g, '""')}"`).join(',')
       )
     ].join('\n');
-
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -84,16 +95,17 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
     window.URL.revokeObjectURL(url);
   }
 
-  // Pagination
-  const totalPages = Math.ceil(filteredRecords.length / rowsPerPage);
-  const startIndex = (currentPage - 1) * rowsPerPage;
-  const endIndex = startIndex + rowsPerPage;
-  const currentRecords = filteredRecords.slice(startIndex, endIndex);
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / rowsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * rowsPerPage;
+  const currentRecords = filteredRecords.slice(startIndex, startIndex + rowsPerPage);
+
+  const activeFilterCount = columnValueFilters ? Object.keys(columnValueFilters).length : 0;
 
   if (loading) {
     return (
       <div className="text-center py-20 bg-white rounded-lg shadow-md">
-        <div className="animate-spin w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+        <div className="animate-spin w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4" />
         <p className="text-slate-600 font-medium">Loading records...</p>
       </div>
     );
@@ -103,8 +115,8 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
     return (
       <div className="text-center py-20 bg-white rounded-lg shadow-md">
         <Table2Icon className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold text-slate-600 mb-2">No Dataset Yet</h2>
-        <p className="text-slate-500">Upload a dataset in the Quality Score tab to see records here.</p>
+        <h2 className="text-xl font-semibold text-slate-600 mb-2">No Dataset Selected</h2>
+        <p className="text-slate-500">Select a dataset from the left panel, or add a new one using the + button.</p>
       </div>
     );
   }
@@ -114,41 +126,33 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-slate-500">
-          {filteredRecords.length} record{filteredRecords.length !== 1 ? 's' : ''}
+          {filteredRecords.length.toLocaleString()} of {records.length.toLocaleString()} record{records.length !== 1 ? 's' : ''}
+          {activeFilterCount > 0 && (
+            <span className="ml-2 text-teal-600 font-medium">· {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active</span>
+          )}
         </span>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={exportToCSV}
-            className="flex items-center space-x-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition"
-          >
-            <Download className="w-4 h-4" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center space-x-2 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition"
-          >
-            <Filter className="w-4 h-4" />
-            <span>{showFilters ? 'Hide' : 'Show'} Filters</span>
-          </button>
-        </div>
+        <button
+          onClick={exportToCSV}
+          className="flex items-center space-x-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition"
+        >
+          <Download className="w-4 h-4" />
+          <span>Export CSV</span>
+        </button>
       </div>
 
       {/* Search */}
-      {showFilters && (
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search all fields..."
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-            />
-          </div>
+      <div className="bg-white rounded-lg shadow-md p-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search all fields..."
+            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+          />
         </div>
-      )}
+      </div>
 
       {/* Data Table */}
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -157,10 +161,7 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
             <thead>
               <tr className="bg-slate-100 border-b border-slate-200">
                 {columns.map((col) => (
-                  <th
-                    key={col}
-                    className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider whitespace-nowrap"
-                  >
+                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider whitespace-nowrap">
                     {col}
                   </th>
                 ))}
@@ -186,7 +187,9 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
 
         {filteredRecords.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-slate-500">No records found</p>
+            <p className="text-slate-500">
+              {activeFilterCount > 0 || searchQuery ? 'No records match the current filters' : 'No records found'}
+            </p>
           </div>
         )}
 
@@ -194,14 +197,11 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <span className="text-sm text-slate-600">
-                Showing {startIndex + 1} - {Math.min(endIndex, filteredRecords.length)} of {filteredRecords.length}
+                Showing {startIndex + 1}–{Math.min(startIndex + rowsPerPage, filteredRecords.length)} of {filteredRecords.length.toLocaleString()}
               </span>
               <select
                 value={rowsPerPage}
-                onChange={(e) => {
-                  setRowsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
+                onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
                 className="px-3 py-1 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent"
               >
                 <option value={10}>10 per page</option>
@@ -212,35 +212,21 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
             </div>
 
             <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setCurrentPage(1)}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
+              <button onClick={() => setCurrentPage(1)} disabled={safePage === 1}
+                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition">
                 <ChevronsLeft className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => setCurrentPage(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
+              <button onClick={() => setCurrentPage(safePage - 1)} disabled={safePage === 1}
+                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition">
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="text-sm text-slate-600 px-4">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
+              <span className="text-sm text-slate-600 px-4">Page {safePage} of {totalPages}</span>
+              <button onClick={() => setCurrentPage(safePage + 1)} disabled={safePage === totalPages}
+                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition">
                 <ChevronRight className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={currentPage === totalPages}
-                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
+              <button onClick={() => setCurrentPage(totalPages)} disabled={safePage === totalPages}
+                className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition">
                 <ChevronsRight className="w-4 h-4" />
               </button>
             </div>
@@ -251,7 +237,6 @@ export default function Records({ projectId, datasetId }: RecordsProps) {
   );
 }
 
-// Simple table icon for empty state
 function Table2Icon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

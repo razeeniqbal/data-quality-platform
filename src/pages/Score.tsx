@@ -4,8 +4,16 @@ import DataPreview from '../components/DataPreview';
 import QualityConfiguration from '../components/QualityConfiguration';
 import ResultsView from '../components/ResultsView';
 import { apiClient } from '../lib/api-client';
+import { FileText, ChevronDown } from 'lucide-react';
 
 type ScoreStep = 'upload' | 'configure' | 'results';
+
+interface Dataset {
+  id: string;
+  name: string;
+  row_count: number;
+  column_count: number;
+}
 
 interface ScoreProps {
   projectId?: string | null;
@@ -19,53 +27,87 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
   const [loading, setLoading] = useState(false);
   const [executionResults, setExecutionResults] = useState<any[] | null>(null);
 
+  // Dataset list + selector
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+
   useEffect(() => {
     if (projectId) {
-      loadProjectData(projectId);
+      loadDatasets(projectId);
     } else {
+      setDatasets([]);
+      setSelectedDatasetId(null);
       setCurrentStep('upload');
       setUploadedData(null);
       setDatasetId(null);
     }
   }, [projectId]);
 
-  async function loadProjectData(projId: string) {
+  // When selected dataset changes, load its data
+  useEffect(() => {
+    if (selectedDatasetId) {
+      loadDatasetForScoring(selectedDatasetId);
+    }
+  }, [selectedDatasetId]);
+
+  async function loadDatasets(projId: string) {
     setLoading(true);
     try {
-      const datasets = await apiClient.getProjectDatasets(projId) as any[];
-
-      if (datasets && datasets.length > 0) {
-        const dataset = datasets[0];
-        const rows = await apiClient.previewDataset(dataset.id, 10000) as Record<string, any>[];
-
-        if (rows && rows.length > 0) {
-          const headers = Object.keys(rows[0]);
-          setUploadedData({ headers, rows });
-          setDatasetId(dataset.id);
-
-          // Check if quality results already exist for this dataset
-          try {
-            const existingResults = await apiClient.getQualityResults(dataset.id) as any[];
-            if (existingResults && existingResults.length > 0) {
-              setCurrentStep('results');
-              return;
-            }
-          } catch {
-            // If check fails, fall through to configure step
-          }
-
-          setCurrentStep('configure');
-          return;
-        }
+      const ds = await apiClient.getProjectDatasets(projId) as Dataset[];
+      setDatasets(ds || []);
+      if (ds && ds.length > 0) {
+        setSelectedDatasetId(ds[0].id);
+      } else {
+        setLoading(false);
+        setCurrentStep('upload');
       }
-
-      setCurrentStep('upload');
     } catch (error) {
-      console.error('Error loading project data:', error);
+      console.error('Error loading datasets:', error);
+      setLoading(false);
+      setCurrentStep('upload');
+    }
+  }
+
+  async function loadDatasetForScoring(dsId: string) {
+    setLoading(true);
+    setUploadedData(null);
+    setDatasetId(null);
+    setExecutionResults(null);
+    try {
+      const rows = await apiClient.previewDataset(dsId, 10000) as Record<string, any>[];
+
+      if (rows && rows.length > 0) {
+        const headers = Object.keys(rows[0]);
+        setUploadedData({ headers, rows });
+        setDatasetId(dsId);
+
+        // Check if quality results already exist
+        try {
+          const existingResults = await apiClient.getQualityResults(dsId) as any[];
+          if (existingResults && existingResults.length > 0) {
+            setCurrentStep('results');
+            return;
+          }
+        } catch {
+          // fall through to configure
+        }
+
+        setCurrentStep('configure');
+      } else {
+        setCurrentStep('upload');
+      }
+    } catch (error) {
+      console.error('Error loading dataset for scoring:', error);
       setCurrentStep('upload');
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleDatasetChange(dsId: string) {
+    setSelectedDatasetId(dsId);
+    setCurrentStep('configure');
+    setExecutionResults(null);
   }
 
   function handleDataUploaded(data: any, id: string) {
@@ -73,12 +115,12 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
     setDatasetId(id);
     setCurrentStep('configure');
     onDatasetCreated?.(id);
+    // Refresh dataset list
+    if (projectId) loadDatasets(projectId);
   }
 
   function handleExecuteRules(results?: any[]) {
-    if (results) {
-      setExecutionResults(results);
-    }
+    if (results) setExecutionResults(results);
     setCurrentStep('results');
   }
 
@@ -89,14 +131,48 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
     setCurrentStep('upload');
   }
 
+  const selectedDataset = datasets.find(d => d.id === selectedDatasetId);
+
   return (
-    <div>
-      {loading ? (
-        <div className="text-center py-20 bg-white rounded-lg shadow-md">
-          <div className="animate-spin w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-slate-600 font-medium">Loading project data...</p>
+    <div className="space-y-4">
+      {/* Dataset selector — shown only when there are datasets */}
+      {projectId && datasets.length > 0 && (
+        <div className="bg-white rounded-lg shadow-md px-6 py-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 flex-shrink-0">
+              <FileText className="w-4 h-4 text-teal-600" />
+              <span>Dataset</span>
+            </div>
+            <div className="relative flex-1 max-w-sm">
+              <select
+                value={selectedDatasetId ?? ''}
+                onChange={(e) => handleDatasetChange(e.target.value)}
+                className="w-full appearance-none pl-4 pr-9 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-white text-slate-700 cursor-pointer"
+              >
+                {datasets.map((ds) => (
+                  <option key={ds.id} value={ds.id}>
+                    {ds.name} ({ds.row_count.toLocaleString()} rows)
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
+            {selectedDataset && (
+              <span className="text-xs text-slate-400">
+                {selectedDataset.column_count} columns
+              </span>
+            )}
+          </div>
         </div>
-      ) : null}
+      )}
+
+      {/* Step content */}
+      {loading && (
+        <div className="text-center py-20 bg-white rounded-lg shadow-md">
+          <div className="animate-spin w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-4" />
+          <p className="text-slate-600 font-medium">Loading dataset...</p>
+        </div>
+      )}
 
       {!loading && currentStep === 'upload' && (
         <UploadInterface onDataUploaded={handleDataUploaded} />
@@ -114,7 +190,11 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
       )}
 
       {!loading && currentStep === 'results' && datasetId && (
-        <ResultsView datasetId={datasetId} initialResults={executionResults} onBack={() => setCurrentStep('configure')} />
+        <ResultsView
+          datasetId={datasetId}
+          initialResults={executionResults}
+          onBack={() => setCurrentStep('configure')}
+        />
       )}
     </div>
   );

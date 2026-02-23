@@ -102,7 +102,7 @@ class ApiClient {
     return data;
   }
 
-  async uploadDataset(projectId: string, file: File) {
+  async uploadDataset(projectId: string, file: File, customName?: string) {
     const text = await file.text();
     const lines = text.trim().split('\n');
     const headers = this.parseCSVLine(lines[0]);
@@ -121,7 +121,7 @@ class ApiClient {
       .from('datasets')
       .insert({
         project_id: projectId,
-        name: file.name.replace(/\.csv$/i, ''),
+        name: customName?.trim() || file.name.replace(/\.csv$/i, ''),
         row_count: rows.length,
         column_count: headers.length,
         file_data: rows,
@@ -166,6 +166,36 @@ class ApiClient {
       throw new Error(error.message);
     }
     return data;
+  }
+
+  async renameDataset(datasetId: string, name: string) {
+    const { data, error } = await supabase
+      .from('datasets')
+      .update({ name })
+      .eq('id', datasetId)
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to rename dataset', new Error(error.message), { datasetId });
+      throw new Error(error.message);
+    }
+    logger.info('Renamed dataset', { datasetId, name });
+    return data;
+  }
+
+  async deleteDataset(datasetId: string) {
+    const { error } = await supabase
+      .from('datasets')
+      .delete()
+      .eq('id', datasetId);
+
+    if (error) {
+      logger.error('Failed to delete dataset', new Error(error.message), { datasetId });
+      throw new Error(error.message);
+    }
+    logger.info('Deleted dataset', { datasetId });
+    return {};
   }
 
   async previewDataset(datasetId: string, limit: number = 100) {
