@@ -1,12 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import UploadInterface from '../components/UploadInterface';
 import DataPreview from '../components/DataPreview';
 import QualityConfiguration from '../components/QualityConfiguration';
 import ResultsView from '../components/ResultsView';
 import { apiClient } from '../lib/api-client';
+import type { QualityCheckResult } from '../components/QualityConfiguration';
 import { FileText, ChevronDown } from 'lucide-react';
 
 type ScoreStep = 'upload' | 'configure' | 'results';
+
+interface UploadedData {
+  headers: string[];
+  rows: Record<string, string>[];
+}
 
 interface Dataset {
   id: string;
@@ -22,10 +28,11 @@ interface ScoreProps {
 
 export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
   const [currentStep, setCurrentStep] = useState<ScoreStep>('upload');
-  const [uploadedData, setUploadedData] = useState<any>(null);
+  const [uploadedData, setUploadedData] = useState<UploadedData | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [executionResults, setExecutionResults] = useState<any[] | null>(null);
+  const [executionResults, setExecutionResults] = useState<QualityCheckResult[] | null>(null);
+  const loadingRef = useRef<string | null>(null);
 
   // Dataset list + selector
   const [datasets, setDatasets] = useState<Dataset[]>([]);
@@ -43,11 +50,11 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
     }
   }, [projectId]);
 
-  // When selected dataset changes, load its data
+  // When selected dataset changes, load its data (track which load is current to prevent races)
   useEffect(() => {
-    if (selectedDatasetId) {
-      loadDatasetForScoring(selectedDatasetId);
-    }
+    if (!selectedDatasetId) return;
+    loadingRef.current = selectedDatasetId;
+    loadDatasetForScoring(selectedDatasetId);
   }, [selectedDatasetId]);
 
   async function loadDatasets(projId: string) {
@@ -74,7 +81,10 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
     setDatasetId(null);
     setExecutionResults(null);
     try {
-      const rows = await apiClient.previewDataset(dsId, 10000) as Record<string, any>[];
+      const rows = await apiClient.previewDataset(dsId, 10000) as Record<string, string>[];
+
+      // Ignore stale responses if the user switched datasets
+      if (loadingRef.current !== dsId) return;
 
       if (rows && rows.length > 0) {
         const headers = Object.keys(rows[0]);
@@ -83,7 +93,7 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
 
         // Check if quality results already exist
         try {
-          const existingResults = await apiClient.getQualityResults(dsId) as any[];
+          const existingResults = await apiClient.getQualityResults(dsId) as QualityCheckResult[];
           if (existingResults && existingResults.length > 0) {
             setCurrentStep('results');
             return;
@@ -100,7 +110,9 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
       console.error('Error loading dataset for scoring:', error);
       setCurrentStep('upload');
     } finally {
-      setLoading(false);
+      if (loadingRef.current === dsId) {
+        setLoading(false);
+      }
     }
   }
 
@@ -110,7 +122,7 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
     setExecutionResults(null);
   }
 
-  function handleDataUploaded(data: any, id: string) {
+  function handleDataUploaded(data: UploadedData, id: string) {
     setUploadedData(data);
     setDatasetId(id);
     setCurrentStep('configure');
@@ -119,16 +131,9 @@ export default function Score({ projectId, onDatasetCreated }: ScoreProps) {
     if (projectId) loadDatasets(projectId);
   }
 
-  function handleExecuteRules(results?: any[]) {
+  function handleExecuteRules(results?: QualityCheckResult[]) {
     if (results) setExecutionResults(results);
     setCurrentStep('results');
-  }
-
-  function handleClearData() {
-    setUploadedData(null);
-    setDatasetId(null);
-    setExecutionResults(null);
-    setCurrentStep('upload');
   }
 
   const selectedDataset = datasets.find(d => d.id === selectedDatasetId);

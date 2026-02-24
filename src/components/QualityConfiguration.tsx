@@ -52,7 +52,7 @@ export default function QualityConfiguration({
   const [templateName, setTemplateName] = useState('');
   const [hasTemplateAction, setHasTemplateAction] = useState(false);
   const [configuredColumns, setConfiguredColumns] = useState<Map<string, Set<string>>>(new Map());
-  const [columnConfigs, setColumnConfigs] = useState<Map<string, Record<string, any>>>(new Map());
+  const [columnConfigs, setColumnConfigs] = useState<Map<string, Record<string, unknown>>>(new Map());
   const [configModal, setConfigModal] = useState<{
     isOpen: boolean;
     dimension: QualityDimension | null;
@@ -65,10 +65,8 @@ export default function QualityConfiguration({
     column: '',
   });
 
-  useEffect(() => {
-    loadDimensions();
-    loadTemplates();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadDimensions(); loadTemplates(); }, []);
 
   async function loadDimensions() {
     try {
@@ -95,9 +93,9 @@ export default function QualityConfiguration({
 
   async function loadTemplates() {
     try {
-      const dbTemplates = await apiClient.getTemplates(datasetId) as any[];
+      const dbTemplates = await apiClient.getTemplates(datasetId) as Array<{ id: string; name: string; template_data: Template['rules']; created_at: string }>;
       if (dbTemplates && dbTemplates.length > 0) {
-        const mapped: Template[] = dbTemplates.map((t: any) => ({
+        const mapped: Template[] = dbTemplates.map((t) => ({
           id: t.id,
           name: t.name,
           rules: t.template_data,
@@ -146,7 +144,7 @@ export default function QualityConfiguration({
     });
   }
 
-  async function handleSaveConfiguration(config: Record<string, string | number | boolean>, referenceFile?: File) {
+  async function handleSaveConfiguration(config: Record<string, unknown>, referenceFile?: File) {
     if (!configModal.dimension || !configModal.column) return;
 
     try {
@@ -160,7 +158,7 @@ export default function QualityConfiguration({
 
       // Store the config data for use during execution
       const configKey = `${configModal.dimension}:${configModal.column}`;
-      const configToStore: Record<string, any> = { ...config };
+      const configToStore: Record<string, unknown> = { ...config };
 
       // If consistency with CSV, parse and store the reference values from the file
       if (configModal.dimension === 'consistency' && config.referenceSource === 'csv' && referenceFile) {
@@ -390,7 +388,7 @@ export default function QualityConfiguration({
         referenceValues = new Set((colConfig.parsedReferenceValues as string[]).map(v => String(v).trim().toLowerCase()));
       } else if (colConfig?.referenceSource === 'database' && colConfig.referenceDatasetId && colConfig.referenceDbColumn) {
         try {
-          const refRows = await apiClient.previewDataset(colConfig.referenceDatasetId as string, 100000) as Record<string, any>[];
+          const refRows = await apiClient.previewDataset(colConfig.referenceDatasetId as string, 100000) as Record<string, string>[];
           const refCol = colConfig.referenceDbColumn as string;
           for (const refRow of refRows) {
             const val = refRow[refCol];
@@ -565,14 +563,16 @@ export default function QualityConfiguration({
         </div>
       )}
 
-      <DimensionConfigModal
-        isOpen={configModal.isOpen}
-        onClose={() => setConfigModal({ isOpen: false, dimension: null, dimensionName: '', column: '' })}
-        dimension={configModal.dimension!}
-        dimensionName={configModal.dimensionName}
-        column={configModal.column}
-        onSave={handleSaveConfiguration}
-      />
+      {configModal.isOpen && configModal.dimension && (
+        <DimensionConfigModal
+          isOpen={configModal.isOpen}
+          onClose={() => setConfigModal({ isOpen: false, dimension: null, dimensionName: '', column: '' })}
+          dimension={configModal.dimension}
+          dimensionName={configModal.dimensionName}
+          column={configModal.column}
+          onSave={handleSaveConfiguration}
+        />
+      )}
 
       {showSaveTemplateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

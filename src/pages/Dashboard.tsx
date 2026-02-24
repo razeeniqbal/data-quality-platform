@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Crown, Edit, Eye, Users, Trash2, X, FileText, FolderOpen, ImageIcon } from 'lucide-react';
+import { Search, Crown, Edit, Eye, Users, Trash2, X, FileText, FolderOpen, ImageIcon, Lock, Globe } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
-import type { Project } from '../types/database';
-
-interface ProjectWithRole extends Project {
-  role: 'owner' | 'editor' | 'viewer';
-  member_count?: number;
-}
+import type { ProjectWithRole, ProjectUserRole } from '../types/database';
+import { useUser } from '../contexts/UserContext';
 
 interface DashboardProps {
   onNavigateToRecords: (projectId: string) => void;
@@ -20,51 +16,66 @@ function getProjectIcon(projectId: string): string | null {
   return localStorage.getItem(`project_icon_${projectId}`);
 }
 
+function getRoleIcon(role: ProjectUserRole) {
+  switch (role) {
+    case 'owner':    return <Crown className="w-4 h-4" />;
+    case 'co-owner': return <Crown className="w-4 h-4" />;
+    case 'editor':   return <Edit className="w-4 h-4" />;
+    case 'viewer':   return <Eye className="w-4 h-4" />;
+  }
+}
+
+function getRoleColor(role: ProjectUserRole) {
+  switch (role) {
+    case 'owner':    return 'bg-purple-100 text-purple-700 border-purple-300';
+    case 'co-owner': return 'bg-purple-50 text-purple-600 border-purple-200';
+    case 'editor':   return 'bg-blue-100 text-blue-700 border-blue-300';
+    case 'viewer':   return 'bg-slate-100 text-slate-700 border-slate-300';
+  }
+}
+
+function getRoleLabel(role: ProjectUserRole) {
+  switch (role) {
+    case 'owner':    return 'Owner';
+    case 'co-owner': return 'Co-owner';
+    case 'editor':   return 'Editor';
+    case 'viewer':   return 'Viewer';
+  }
+}
+
 export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
+  const { user } = useUser();
   const [myProjects, setMyProjects] = useState<ProjectWithRole[]>([]);
   const [sharedProjects, setSharedProjects] = useState<ProjectWithRole[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'my' | 'shared'>('my');
+  const [activeTab, setActiveTab] = useState<'all' | 'my' | 'shared'>('all');
 
   // New Project modal state
   const [showNewProject, setShowNewProject] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
+  const [newProjectIsPublic, setNewProjectIsPublic] = useState(false);
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const iconInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadProjects();
-  }, []);
+    if (user) loadProjects();
+  }, [user]);
 
   async function loadProjects() {
+    if (!user) return;
     try {
-      const projects = await apiClient.getProjects() as Project[];
-      const owned = projects.map((p: Project) => ({ ...p, role: 'owner' as const }));
+      const projects = await apiClient.getProjects(user.displayName) as ProjectWithRole[];
+      const owned = projects.filter(p => p.userRole === 'owner' || p.userRole === 'co-owner');
+      const shared = projects.filter(p => p.userRole === 'editor' || p.userRole === 'viewer');
       setMyProjects(owned);
-      setSharedProjects([]);
+      setSharedProjects(shared);
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
       setLoading(false);
-    }
-  }
-
-  function getRoleIcon(role: 'owner' | 'editor' | 'viewer') {
-    switch (role) {
-      case 'owner': return <Crown className="w-4 h-4" />;
-      case 'editor': return <Edit className="w-4 h-4" />;
-      case 'viewer': return <Eye className="w-4 h-4" />;
-    }
-  }
-
-  function getRoleColor(role: 'owner' | 'editor' | 'viewer') {
-    switch (role) {
-      case 'owner': return 'bg-purple-100 text-purple-700 border-purple-300';
-      case 'editor': return 'bg-blue-100 text-blue-700 border-blue-300';
-      case 'viewer': return 'bg-slate-100 text-slate-700 border-slate-300';
     }
   }
 
@@ -75,6 +86,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
       await apiClient.deleteProject(projectId);
       localStorage.removeItem(`project_icon_${projectId}`);
       setMyProjects((prev) => prev.filter((p) => p.id !== projectId));
+      setSharedProjects((prev) => prev.filter((p) => p.id !== projectId));
     } catch (error) {
       console.error('Error deleting project:', error);
       alert('Failed to delete project.');
@@ -92,6 +104,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     setShowNewProject(false);
     setProjectName('');
     setProjectDescription('');
+    setNewProjectIsPublic(false);
     setIconPreview(null);
   }
 
@@ -113,7 +126,12 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     }
     setIsCreating(true);
     try {
-      const project = await apiClient.createProject(name, projectDescription.trim()) as { id: string };
+      const project = await apiClient.createProject(
+        name,
+        projectDescription.trim(),
+        newProjectIsPublic,
+        user?.displayName
+      ) as { id: string };
       if (iconPreview) {
         saveProjectIcon(project.id, iconPreview);
       }
@@ -129,7 +147,8 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     }
   }
 
-  const projectsToShow = activeTab === 'my' ? myProjects : sharedProjects;
+  const allProjects = [...myProjects, ...sharedProjects];
+  const projectsToShow = activeTab === 'all' ? allProjects : activeTab === 'my' ? myProjects : sharedProjects;
   const filteredProjects = projectsToShow.filter(
     (project) =>
       project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -223,6 +242,44 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none resize-none text-sm"
                 />
               </div>
+
+              {/* Visibility */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Visibility
+                </label>
+                <div className="flex items-center space-x-2 p-1.5 border border-slate-200 rounded-lg bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setNewProjectIsPublic(false)}
+                    className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg transition text-sm font-medium ${
+                      !newProjectIsPublic
+                        ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>Private</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewProjectIsPublic(true)}
+                    className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg transition text-sm font-medium ${
+                      newProjectIsPublic
+                        ? 'bg-white text-teal-700 shadow-sm border border-teal-200'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Globe className="w-4 h-4" />
+                    <span>Public</span>
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-1.5">
+                  {newProjectIsPublic
+                    ? 'All logged-in users can see this project in their dashboard'
+                    : 'Only you and members you add can see this project'}
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center justify-end space-x-3 px-6 py-4 border-t border-slate-200">
@@ -254,45 +311,54 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="bg-white rounded-lg shadow-md mb-6">
-        <div className="border-b border-slate-200">
-          <div className="flex">
-            <button
-              onClick={() => setActiveTab('my')}
-              className={`px-6 py-4 font-medium transition border-b-2 ${
-                activeTab === 'my'
-                  ? 'border-teal-600 text-teal-700'
-                  : 'border-transparent text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              My Projects ({myProjects.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('shared')}
-              className={`px-6 py-4 font-medium transition border-b-2 ${
-                activeTab === 'shared'
-                  ? 'border-teal-600 text-teal-700'
-                  : 'border-transparent text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              Shared with Me ({sharedProjects.length})
-            </button>
+      {/* Filter cards + search */}
+      <div className="flex items-center gap-4 mb-6 flex-wrap">
+        {/* My Projects filter card */}
+        <button
+          onClick={() => setActiveTab(activeTab === 'my' ? 'all' : 'my')}
+          className={`flex items-center space-x-3 px-5 py-3 rounded-xl border-2 transition shadow-sm ${
+            activeTab === 'my'
+              ? 'border-purple-400 bg-purple-50 text-purple-700'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-purple-300 hover:bg-purple-50/50'
+          }`}
+        >
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${activeTab === 'my' ? 'bg-purple-100' : 'bg-slate-100'}`}>
+            <Crown className={`w-4 h-4 ${activeTab === 'my' ? 'text-purple-600' : 'text-slate-400'}`} />
           </div>
-        </div>
+          <div className="text-left">
+            <p className="text-xs text-slate-400 font-medium leading-none mb-0.5">My Projects</p>
+            <p className={`text-lg font-bold leading-none ${activeTab === 'my' ? 'text-purple-700' : 'text-slate-700'}`}>{myProjects.length}</p>
+          </div>
+        </button>
 
-        {/* Search */}
-        <div className="p-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search projects"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
-            />
+        {/* Shared with Me filter card */}
+        <button
+          onClick={() => setActiveTab(activeTab === 'shared' ? 'all' : 'shared')}
+          className={`flex items-center space-x-3 px-5 py-3 rounded-xl border-2 transition shadow-sm ${
+            activeTab === 'shared'
+              ? 'border-teal-400 bg-teal-50 text-teal-700'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50/50'
+          }`}
+        >
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${activeTab === 'shared' ? 'bg-teal-100' : 'bg-slate-100'}`}>
+            <Users className={`w-4 h-4 ${activeTab === 'shared' ? 'text-teal-600' : 'text-slate-400'}`} />
           </div>
+          <div className="text-left">
+            <p className="text-xs text-slate-400 font-medium leading-none mb-0.5">Shared with Me</p>
+            <p className={`text-lg font-bold leading-none ${activeTab === 'shared' ? 'text-teal-700' : 'text-slate-700'}`}>{sharedProjects.length}</p>
+          </div>
+        </button>
+
+        {/* Search — pushed right */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search projects..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none text-sm"
+          />
         </div>
       </div>
 
@@ -303,23 +369,15 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
           <p className="text-slate-600 mt-4">Loading projects...</p>
         </div>
       ) : filteredProjects.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-lg shadow-md">
+        <div className="text-center py-20 bg-white rounded-xl shadow-sm border border-slate-100">
           <FolderOpen className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-slate-600 mb-2">
-            {searchQuery
-              ? 'No Projects Found'
-              : activeTab === 'my'
-              ? 'No Projects Yet'
-              : 'No Shared Projects'}
+            {searchQuery ? 'No Projects Found' : activeTab === 'shared' ? 'No Shared Projects' : 'No Projects Yet'}
           </h2>
           <p className="text-slate-500 mb-6">
-            {searchQuery
-              ? 'Try a different search term'
-              : activeTab === 'my'
-              ? 'Get started by creating your first project'
-              : 'Projects shared with you will appear here'}
+            {searchQuery ? 'Try a different search term' : activeTab === 'shared' ? 'Projects shared with you will appear here' : 'Get started by creating your first project'}
           </p>
-          {activeTab === 'my' && !searchQuery && (
+          {activeTab !== 'shared' && !searchQuery && (
             <button
               onClick={openNewProject}
               className="bg-gradient-to-r from-teal-600 to-emerald-600 text-white px-6 py-3 rounded-lg hover:from-teal-700 hover:to-emerald-700 transition inline-flex items-center space-x-2"
@@ -330,61 +388,73 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredProjects.map((project) => {
             const icon = getProjectIcon(project.id);
+            const canDelete = project.userRole === 'owner';
             return (
               <div
                 key={project.id}
-                className="bg-white rounded-lg shadow-md hover:shadow-xl transition p-6 cursor-pointer group"
+                className="bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-teal-200 transition cursor-pointer group flex flex-col"
                 onClick={() => onNavigateToRecords(project.id)}
               >
-                <div className="flex items-start justify-between mb-4">
-                  {/* Project icon */}
-                  <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center group-hover:scale-105 transition">
-                    {icon ? (
-                      <img src={icon} alt={project.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <FolderOpen className="w-7 h-7 text-white" />
-                    )}
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium border ${getRoleColor(project.role)}`}>
-                      {getRoleIcon(project.role)}
-                      <span className="capitalize">{project.role}</span>
+                {/* Card header */}
+                <div className="p-5 flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center">
+                      {icon
+                        ? <img src={icon} alt={project.name} className="w-full h-full object-cover" />
+                        : <FolderOpen className="w-6 h-6 text-white" />}
                     </div>
-                    <button
-                      onClick={(e) => handleDeleteProject(e, project.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100"
-                      title="Delete project"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  </div>
+                  {/* Role badge */}
+                  <div className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-medium border ${getRoleColor(project.userRole)}`}>
+                    {getRoleIcon(project.userRole)}
+                    <span>{getRoleLabel(project.userRole)}</span>
                   </div>
                 </div>
 
-                <h3 className="font-bold text-slate-800 text-lg mb-1 truncate group-hover:text-teal-700 transition">
-                  {project.name}
-                </h3>
-                {project.description && (
-                  <p className="text-sm text-slate-500 mb-1 line-clamp-2">{project.description}</p>
-                )}
-                <p className="text-xs text-slate-400 mb-3">
-                  Created: {new Date(project.created_at).toLocaleDateString()}
-                </p>
-
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                  <div className="flex items-center space-x-1 text-xs text-teal-600 font-medium">
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Open Datasets</span>
-                  </div>
-                  {project.role === 'owner' && project.member_count !== undefined && project.member_count > 0 && (
-                    <div className="flex items-center space-x-1 text-xs text-slate-500">
-                      <Users className="w-3.5 h-3.5" />
-                      <span>{project.member_count} collaborator{project.member_count !== 1 ? 's' : ''}</span>
-                    </div>
+                {/* Card body */}
+                <div className="px-5 pb-4 flex-1">
+                  <h3 className="font-bold text-slate-800 text-base group-hover:text-teal-700 transition truncate" title={project.name}>
+                    {project.name}
+                  </h3>
+                  {project.description && (
+                    <p className="text-xs text-teal-600 mt-0.5 line-clamp-2" title={project.description}>
+                      {project.description}
+                    </p>
                   )}
+                  <p className="text-xs text-slate-400 mt-1">
+                    Created: {new Date(project.created_at).toLocaleDateString('en-GB')}
+                  </p>
+                </div>
+
+                {/* Card footer */}
+                <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={() => onNavigateToRecords(project.id)}
+                    className="flex items-center space-x-1.5 text-sm text-teal-600 hover:text-teal-800 font-medium transition"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Open Datasets</span>
+                  </button>
+                  <div className="flex items-center space-x-2">
+                    {(project.member_count ?? 0) > 0 && (
+                      <div className="flex items-center space-x-1 text-xs text-slate-400">
+                        <Users className="w-3.5 h-3.5" />
+                        <span>{project.member_count}</span>
+                      </div>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={(e) => handleDeleteProject(e, project.id)}
+                        className="p-1 text-slate-300 hover:text-red-500 transition"
+                        title="Delete project"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );

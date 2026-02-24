@@ -2,8 +2,13 @@ import { useState, useRef } from 'react';
 import { Upload, FileText, Database, Key } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 
+interface ParsedData {
+  headers: string[];
+  rows: Record<string, string>[];
+}
+
 interface UploadInterfaceProps {
-  onDataUploaded: (data: any, datasetId: string) => void;
+  onDataUploaded: (data: ParsedData, datasetId: string) => void;
 }
 
 export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps) {
@@ -92,7 +97,7 @@ export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps
       .filter(line => line.trim().length > 0)
       .map((line) => {
         const values = parseLine(line);
-        const row: any = {};
+        const row: Record<string, string> = {};
         headers.forEach((header, index) => {
           row[header] = values[index] || '';
         });
@@ -123,15 +128,16 @@ export default function UploadInterface({ onDataUploaded }: UploadInterfaceProps
       const projectData = await apiClient.createProject(
         projectName,
         `Imported from ${file.name}`
-      ) as any;
+      ) as { id: string };
 
       // Upload dataset via API
-      const datasetData = await apiClient.uploadDataset(projectData.id, file) as any;
+      const datasetData = await apiClient.uploadDataset(projectData.id, file) as { id: string };
 
       onDataUploaded({ headers, rows }, datasetData.id);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error processing file:', error);
-      alert(error.message || 'Error processing file. Please try again.');
+      const message = error instanceof Error ? error.message : 'Error processing file. Please try again.';
+      alert(message);
     } finally {
       setIsProcessing(false);
     }

@@ -2,13 +2,20 @@ import { useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import DimensionConfig from './pages/DimensionConfig';
 import ProjectView from './pages/ProjectView';
-import { LayoutGrid, Network, Layers, Settings } from 'lucide-react';
+import AdminPage from './pages/AdminPage';
+import LoginPage from './pages/LoginPage';
+import { useUser } from './contexts/UserContext';
+import { LayoutGrid, Network, Layers, Settings, LogOut, Shield } from 'lucide-react';
 
-type Page = 'dashboard' | 'config' | 'records' | 'osdu' | 'upcoming';
+type Page = 'dashboard' | 'config' | 'records' | 'osdu' | 'upcoming' | 'admin';
 
 function AppContent() {
+  const { user, logout } = useUser();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+
+  if (!user) return <LoginPage />;
+
   function navigateToRecords(projectId: string) {
     setSelectedProjectId(projectId);
     setCurrentPage('records');
@@ -25,11 +32,27 @@ function AppContent() {
               </div>
               <div>
                 <h1 className="text-xl font-bold">Governance Plus</h1>
+                <p className="text-xs text-teal-100">AEM ENERGY SOLUTIONS</p>
               </div>
             </div>
-            <div className="text-sm text-right">
-              <div className="text-teal-50">DEVELOPMENT v1.0.00</div>
-              <div className="text-xs text-teal-100">AEM ENERGY SOLUTIONS</div>
+            {/* User identity pill */}
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2 bg-white/10 rounded-xl px-3 py-2">
+                <div className="w-7 h-7 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-teal-700 font-bold text-sm">
+                    {user.displayName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-sm font-medium text-white">{user.displayName}</span>
+              </div>
+              <button
+                onClick={() => { setCurrentPage('dashboard'); setSelectedProjectId(null); logout(); }}
+                className="flex items-center space-x-1.5 px-3 py-2 text-teal-100 hover:text-white hover:bg-white/10 rounded-xl transition text-sm"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Sign out</span>
+              </button>
             </div>
           </div>
         </div>
@@ -82,6 +105,17 @@ function AppContent() {
               <Layers className="w-5 h-5" />
               <span className="font-medium">Upcoming Module</span>
             </button>
+            <button
+              onClick={() => setCurrentPage('admin')}
+              className={`flex items-center space-x-2 px-4 py-3 transition border-b-2 ${
+                currentPage === 'admin'
+                  ? 'border-teal-400 text-white bg-slate-600'
+                  : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-600'
+              }`}
+            >
+              <Shield className="w-5 h-5" />
+              <span className="font-medium">Admin</span>
+            </button>
           </div>
         </div>
       </nav>
@@ -114,6 +148,7 @@ function AppContent() {
             <p className="text-slate-500 mt-2">Coming soon</p>
           </div>
         )}
+        {currentPage === 'admin' && <AdminPage />}
       </main>
     </div>
   );

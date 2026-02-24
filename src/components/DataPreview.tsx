@@ -3,7 +3,7 @@ import { Table } from 'lucide-react';
 interface DataPreviewProps {
   data: {
     headers: string[];
-    rows: Record<string, any>[];
+    rows: Record<string, string>[];
   };
 }
 

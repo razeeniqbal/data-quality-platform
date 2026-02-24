@@ -10,14 +10,14 @@ interface LogEntry {
   timestamp: string;
   level: LogLevel;
   message: string;
-  data?: any;
+  data?: unknown;
   error?: Error;
 }
 
 class Logger {
   private isDevelopment = import.meta.env.DEV;
 
-  private log(level: LogLevel, message: string, data?: any, error?: Error) {
+  private log(level: LogLevel, message: string, data?: unknown, error?: Error) {
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -56,24 +56,24 @@ class Logger {
       // Keep only last 100 logs
       if (logs.length > 100) logs.shift();
       localStorage.setItem('app_logs', JSON.stringify(logs));
-    } catch (e) {
+    } catch {
       // Ignore storage errors
     }
   }
 
-  debug(message: string, data?: any) {
+  debug(message: string, data?: unknown) {
     this.log(LogLevel.DEBUG, message, data);
   }
 
-  info(message: string, data?: any) {
+  info(message: string, data?: unknown) {
     this.log(LogLevel.INFO, message, data);
   }
 
-  warn(message: string, data?: any) {
+  warn(message: string, data?: unknown) {
     this.log(LogLevel.WARN, message, data);
   }
 
-  error(message: string, error?: Error, data?: any) {
+  error(message: string, error?: Error, data?: unknown) {
     this.log(LogLevel.ERROR, message, data, error);
   }
 

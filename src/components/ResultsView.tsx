@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Download, ArrowLeft, ChevronUp, CheckCircle, XCircle, Eye } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 import type { QualityResult } from '../types/database';
-import type { RowDetail } from './QualityConfiguration';
+import type { QualityCheckResult, RowDetail } from './QualityConfiguration';
 
 interface ResultWithDetails extends QualityResult {
   rowDetails?: RowDetail[];
@@ -10,7 +10,7 @@ interface ResultWithDetails extends QualityResult {
 
 interface ResultsViewProps {
   datasetId: string;
-  initialResults?: any[] | null;
+  initialResults?: QualityCheckResult[] | null;
   onBack: () => void;
 }
 
@@ -23,9 +23,8 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
   const [detailPage, setDetailPage] = useState(0);
   const ROWS_PER_PAGE = 20;
 
-  useEffect(() => {
-    loadResults();
-  }, [datasetId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadResults(); }, [datasetId]);
 
   async function loadResults() {
     try {

@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Table2, Target, FileText, Plus, Upload, X, Search, ChevronDown, ChevronRight, FilterX, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Table2, Target, FileText, Plus, Upload, X, Search, ChevronDown, ChevronRight, FilterX, Pencil, Trash2, Settings } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
+import { useUser } from '../contexts/UserContext';
 import Records from './Records';
 import Score from './Score';
+import ProjectSettingsPanel from '../components/ProjectSettingsPanel';
+import type { ProjectUserRole } from '../types/database';
 
 type ProjectTab = 'records' | 'score';
 
@@ -24,11 +27,13 @@ interface ProjectViewProps {
 }
 
 export default function ProjectView({ projectId, initialTab = 'records', onBack }: ProjectViewProps) {
+  const { user } = useUser();
   const [activeTab, setActiveTab] = useState<ProjectTab>(initialTab);
   const [projectName, setProjectName] = useState('');
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentUserRole, setCurrentUserRole] = useState<ProjectUserRole>('viewer');
 
   // Sidebar section expand states
   const [datasetsExpanded, setDatasetsExpanded] = useState(true);
@@ -61,15 +66,43 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
   // Delete dataset
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadProject();
-  }, [projectId]);
+  // Project settings panel
+  const [showSettings, setShowSettings] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [projectDescription, setProjectDescription] = useState('');
+  const [projectOwnerName, setProjectOwnerName] = useState<string | null>(null);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadProject(); }, [projectId]);
 
   async function loadProject() {
     setLoading(true);
     try {
-      const project = await apiClient.getProject(projectId) as any;
+      const project = await apiClient.getProject(projectId) as { name: string; description: string; is_public: boolean; owner_name: string | null };
       setProjectName(project?.name || '');
+      setProjectDescription(project?.description || '');
+      setIsPublic(project?.is_public ?? false);
+      setProjectOwnerName(project?.owner_name ?? null);
+
+      // Determine current user's role for this project
+      if (user) {
+        if (project?.owner_name === null) {
+          // Legacy project with no owner recorded — treat current user as owner
+          setCurrentUserRole('owner');
+        } else if (project?.owner_name === user.displayName) {
+          setCurrentUserRole('owner');
+        } else {
+          const members = await apiClient.getProjectMembers(projectId) as Array<{ display_name: string | null; role: 'owner' | 'editor' | 'viewer' }>;
+          const myMembership = members.find(m => m.display_name === user.displayName);
+          if (myMembership) {
+            // project_members role='owner' means co-owner
+            setCurrentUserRole(myMembership.role === 'owner' ? 'co-owner' : myMembership.role);
+          } else {
+            setCurrentUserRole('viewer');
+          }
+        }
+      }
+
       const ds = await apiClient.getProjectDatasets(projectId) as Dataset[];
       setDatasets(ds || []);
       if (ds && ds.length > 0) setSelectedDatasetId(ds[0].id);
@@ -81,7 +114,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
   }
 
   // Called by Records when rows are loaded — compute unique values per column
-  function handleDataLoaded(rows: Record<string, any>[], cols: string[]) {
+  function handleDataLoaded(rows: Record<string, string>[], cols: string[]) {
     setAllColumns(cols);
     setColumnValueFilters({});
     setExpandedColumns(new Set());
@@ -233,12 +266,44 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center space-x-4">
-        <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-lg transition" title="Back to Dashboard">
-          <ArrowLeft className="w-6 h-6 text-slate-700" />
-        </button>
-        <h1 className="text-3xl font-bold text-slate-800">{projectName}</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-lg transition" title="Back to Dashboard">
+            <ArrowLeft className="w-6 h-6 text-slate-700" />
+          </button>
+          <h1 className="text-3xl font-bold text-slate-800">{projectName}</h1>
+        </div>
+        {(currentUserRole === 'owner' || currentUserRole === 'co-owner') && (
+          <button
+            onClick={() => setShowSettings(true)}
+            className="flex items-center space-x-2 px-3 py-2 text-slate-600 hover:text-teal-700 hover:bg-teal-50 border border-slate-200 rounded-lg transition"
+            title="Project Settings"
+          >
+            <Settings className="w-4 h-4" />
+            <span className="text-sm font-medium">Settings</span>
+          </button>
+        )}
       </div>
+
+      {/* Project settings slide-over panel */}
+      {showSettings && (
+        <ProjectSettingsPanel
+          projectId={projectId}
+          projectName={projectName}
+          projectDescription={projectDescription}
+          ownerName={projectOwnerName}
+          isPublic={isPublic}
+          isOwner={currentUserRole === 'owner'}
+          onClose={() => setShowSettings(false)}
+          onVisibilityChange={async (newValue) => {
+            await apiClient.updateProject(projectId, { is_public: newValue });
+            setIsPublic(newValue);
+          }}
+          onMemberAdded={() => {}}
+          onMemberRoleChanged={() => {}}
+          onMemberRemoved={() => {}}
+        />
+      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-lg shadow-md">
@@ -342,38 +407,42 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                                   {ds.row_count.toLocaleString()} rows · {ds.column_count} cols
                                 </p>
                               </div>
-                              {/* Rename / Delete actions — visible on hover */}
-                              <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition flex-shrink-0 mt-0.5">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); openRename(ds); }}
-                                  className="p-1 text-slate-400 hover:text-teal-600 rounded transition"
-                                  title="Rename dataset"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleDeleteDataset(ds.id); }}
-                                  disabled={isDeletingId === ds.id}
-                                  className="p-1 text-slate-400 hover:text-red-500 rounded transition disabled:opacity-50"
-                                  title="Delete dataset"
-                                >
-                                  {isDeletingId === ds.id
-                                    ? <div className="w-3.5 h-3.5 border border-slate-400 border-t-transparent rounded-full animate-spin" />
-                                    : <Trash2 className="w-3.5 h-3.5" />}
-                                </button>
-                              </div>
+                              {/* Rename / Delete actions — visible on hover, owner/co-owner/editor only */}
+                              {(currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
+                                <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition flex-shrink-0 mt-0.5">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openRename(ds); }}
+                                    className="p-1 text-slate-400 hover:text-teal-600 rounded transition"
+                                    title="Rename dataset"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteDataset(ds.id); }}
+                                    disabled={isDeletingId === ds.id}
+                                    className="p-1 text-slate-400 hover:text-red-500 rounded transition disabled:opacity-50"
+                                    title="Delete dataset"
+                                  >
+                                    {isDeletingId === ds.id
+                                      ? <div className="w-3.5 h-3.5 border border-slate-400 border-t-transparent rounded-full animate-spin" />
+                                      : <Trash2 className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </li>
                       ))}
                     </ul>
                   )}
-                  <button
-                    onClick={() => setShowAddDataset(true)}
-                    className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-teal-600 hover:bg-teal-50 border-t border-slate-100 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />Add Dataset
-                  </button>
+                  {(currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
+                    <button
+                      onClick={() => setShowAddDataset(true)}
+                      className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-teal-600 hover:bg-teal-50 border-t border-slate-100 transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" />Add Dataset
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -401,17 +470,17 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                 <div className="flex flex-col flex-1 min-h-0">
                   {allColumns.length === 0 ? (
                     <p className="text-xs text-slate-400 text-center py-6 px-4">
-                      {selectedDatasetId ? 'Loading columns...' : 'Select a dataset to filter'}
+                      {selectedDatasetId ? 'Loading attributes...' : 'Select a dataset to filter'}
                     </p>
                   ) : (
                     <>
-                      {/* Column search */}
+                      {/* Attribute search */}
                       <div className="px-3 py-2 border-b border-slate-100 flex-shrink-0">
                         <div className="relative">
                           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                           <input
                             type="text"
-                            placeholder="Search columns..."
+                            placeholder="Search attributes..."
                             value={columnSearch}
                             onChange={(e) => setColumnSearch(e.target.value)}
                             className="w-full pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-teal-400 focus:border-transparent outline-none"
@@ -434,7 +503,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                       {/* Scrollable column accordion list */}
                       <div className="overflow-y-auto flex-1">
                         {filteredColumnList.length === 0 ? (
-                          <p className="text-xs text-slate-400 text-center py-4">No columns match</p>
+                          <p className="text-xs text-slate-400 text-center py-4">No attributes match</p>
                         ) : (
                           filteredColumnList.map((col) => {
                             const isExpanded = expandedColumns.has(col);
@@ -530,10 +599,20 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
         </div>
       )}
 
-      {activeTab === 'score' && <Score projectId={projectId} />}
+      {activeTab === 'score' && (
+        currentUserRole === 'viewer'
+          ? (
+            <div className="bg-white rounded-lg shadow-md flex flex-col items-center justify-center py-20 text-center">
+              <Target className="w-12 h-12 text-slate-300 mb-4" />
+              <p className="text-slate-600 font-semibold text-lg">View-only access</p>
+              <p className="text-slate-400 text-sm mt-1">Quality Score is only available to editors and owners.</p>
+            </div>
+          )
+          : <Score projectId={projectId} />
+      )}
 
-      {/* ── Add Dataset Modal ── */}
-      {showAddDataset && (
+      {/* ── Add Dataset Modal — owner/co-owner/editor only ── */}
+      {showAddDataset && currentUserRole !== 'viewer' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
             <div className="flex items-center justify-between p-6 border-b border-slate-200">

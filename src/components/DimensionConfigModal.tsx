@@ -9,10 +9,10 @@ interface DimensionConfigModalProps {
   dimensionName: string;
   column: string;
   existingConfig?: {
-    config_data: Record<string, any>;
+    config_data: Record<string, unknown>;
     is_configured: boolean;
   };
-  onSave: (config: Record<string, any>, referenceFile?: File) => Promise<void>;
+  onSave: (config: Record<string, unknown>, referenceFile?: File) => Promise<void>;
 }
 
 export default function DimensionConfigModal({
@@ -24,7 +24,7 @@ export default function DimensionConfigModal({
   existingConfig,
   onSave,
 }: DimensionConfigModalProps) {
-  const [config, setConfig] = useState<Record<string, any>>(
+  const [config, setConfig] = useState<Record<string, unknown>>(
     existingConfig?.config_data || {}
   );
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
@@ -37,8 +37,12 @@ export default function DimensionConfigModal({
   if (!isOpen) return null;
 
   async function handleSave() {
-    await onSave(config, referenceFile || undefined);
-    onClose();
+    try {
+      await onSave(config, referenceFile || undefined);
+      onClose();
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+    }
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {

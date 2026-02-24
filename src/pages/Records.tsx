@@ -4,14 +4,14 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Searc
 import type { ColumnValueFilters } from './ProjectView';
 
 interface RecordsProps {
-  projectId: string;
+  projectId?: string;
   datasetId: string | null;
   columnValueFilters?: ColumnValueFilters;
-  onDataLoaded?: (rows: Record<string, any>[], columns: string[]) => void;
+  onDataLoaded?: (rows: Record<string, string>[], columns: string[]) => void;
 }
 
-export default function Records({ projectId, datasetId, columnValueFilters, onDataLoaded }: RecordsProps) {
-  const [records, setRecords] = useState<Record<string, any>[]>([]);
+export default function Records({ datasetId, columnValueFilters, onDataLoaded }: RecordsProps) {
+  const [records, setRecords] = useState<Record<string, string>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -19,35 +19,39 @@ export default function Records({ projectId, datasetId, columnValueFilters, onDa
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    if (datasetId) {
-      loadRecords();
-    } else {
+    if (!datasetId) {
       setRecords([]);
       setColumns([]);
       setLoading(false);
+      return;
     }
-  }, [datasetId]);
-
-  async function loadRecords() {
+    let cancelled = false;
     setLoading(true);
-    try {
-      const rows = await apiClient.previewDataset(datasetId!, 10000) as Record<string, any>[];
-      if (rows && rows.length > 0) {
-        const cols = Object.keys(rows[0]);
-        setColumns(cols);
-        setRecords(rows);
-        onDataLoaded?.(rows, cols);
-      } else {
-        setColumns([]);
-        setRecords([]);
-        onDataLoaded?.([], []);
-      }
-    } catch (error) {
-      console.error('Error loading records:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
+    apiClient.previewDataset(datasetId, 10000)
+      .then((rows) => {
+        if (cancelled) return;
+        const typedRows = rows as Record<string, string>[];
+        if (typedRows && typedRows.length > 0) {
+          const cols = Object.keys(typedRows[0]);
+          setColumns(cols);
+          setRecords(typedRows);
+          onDataLoaded?.(typedRows, cols);
+        } else {
+          setColumns([]);
+          setRecords([]);
+          onDataLoaded?.([], []);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Error loading records:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
 
   // Apply sidebar column-value filters + search query
   const filteredRecords = (() => {
