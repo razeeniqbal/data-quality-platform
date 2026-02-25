@@ -9,7 +9,7 @@ class ApiClient {
   }
 
   // Projects
-  async getProjects(currentUserDisplayName: string) {
+  async getProjects(currentUserDisplayName: string, isAdmin = false) {
     // Fetch all projects with member count
     const { data: projectsData, error: projectsError } = await supabase
       .from('projects')
@@ -51,6 +51,8 @@ class ApiClient {
         userRole = 'viewer';
       } else if (p.is_public) {
         userRole = 'viewer';
+      } else if (isAdmin) {
+        userRole = 'viewer'; // admin can see but not edit
       } else {
         return null; // not accessible
       }
@@ -67,7 +69,7 @@ class ApiClient {
     return projects;
   }
 
-  async createProject(name: string, description?: string, is_public?: boolean, ownerName?: string) {
+  async createProject(name: string, description?: string, is_public?: boolean, ownerName?: string, iconUrl?: string | null) {
     const { data, error } = await supabase
       .from('projects')
       .insert({
@@ -75,6 +77,7 @@ class ApiClient {
         description: description || '',
         is_public: is_public ?? false,
         owner_name: ownerName ?? null,
+        icon_url: iconUrl ?? null,
       })
       .select()
       .single();
@@ -102,7 +105,7 @@ class ApiClient {
     return data;
   }
 
-  async updateProject(projectId: string, updates: { name?: string; description?: string; is_public?: boolean }) {
+  async updateProject(projectId: string, updates: { name?: string; description?: string; is_public?: boolean; icon_url?: string | null }) {
     const { data, error } = await supabase
       .from('projects')
       .update({ ...updates, updated_at: new Date().toISOString() })
@@ -209,7 +212,7 @@ class ApiClient {
     return data;
   }
 
-  async uploadDataset(projectId: string, file: File, customName?: string) {
+  async uploadDataset(projectId: string, file: File, customName?: string, description?: string) {
     const text = await file.text();
     const lines = text.trim().split('\n');
     const headers = this.parseCSVLine(lines[0]);
@@ -229,6 +232,7 @@ class ApiClient {
       .insert({
         project_id: projectId,
         name: customName?.trim() || file.name.replace(/\.csv$/i, ''),
+        description: description?.trim() || null,
         row_count: rows.length,
         column_count: headers.length,
         file_data: rows,
@@ -259,19 +263,21 @@ class ApiClient {
     return data;
   }
 
-  async renameDataset(datasetId: string, name: string) {
+  async renameDataset(datasetId: string, name: string, description?: string | null) {
+    const updates: Record<string, unknown> = { name };
+    if (description !== undefined) updates.description = description;
     const { data, error } = await supabase
       .from('datasets')
-      .update({ name })
+      .update(updates)
       .eq('id', datasetId)
       .select()
       .single();
 
     if (error) {
-      logger.error('Failed to rename dataset', new Error(error.message), { datasetId });
+      logger.error('Failed to update dataset', new Error(error.message), { datasetId });
       throw new Error(error.message);
     }
-    logger.info('Renamed dataset', { datasetId, name });
+    logger.info('Updated dataset', { datasetId, name });
     return data;
   }
 

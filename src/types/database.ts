@@ -4,6 +4,7 @@ export interface Project {
   description: string;
   owner_id?: string;
   owner_name: string | null;
+  icon_url: string | null;
   is_public: boolean;
   created_at: string;
   updated_at: string;

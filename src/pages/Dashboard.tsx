@@ -8,11 +8,8 @@ interface DashboardProps {
   onNavigateToRecords: (projectId: string) => void;
 }
 
-// Store project icons in localStorage keyed by project id
-function saveProjectIcon(projectId: string, dataUrl: string) {
-  localStorage.setItem(`project_icon_${projectId}`, dataUrl);
-}
-function getProjectIcon(projectId: string): string | null {
+// Legacy localStorage icon fallback (for icons saved before DB storage)
+function getLocalIcon(projectId: string): string | null {
   return localStorage.getItem(`project_icon_${projectId}`);
 }
 
@@ -67,7 +64,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
   async function loadProjects() {
     if (!user) return;
     try {
-      const projects = await apiClient.getProjects(user.displayName) as ProjectWithRole[];
+      const projects = await apiClient.getProjects(user.displayName, user.role === 'admin') as ProjectWithRole[];
       const owned = projects.filter(p => p.userRole === 'owner' || p.userRole === 'co-owner');
       const shared = projects.filter(p => p.userRole === 'editor' || p.userRole === 'viewer');
       setMyProjects(owned);
@@ -84,7 +81,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
     try {
       await apiClient.deleteProject(projectId);
-      localStorage.removeItem(`project_icon_${projectId}`);
+      localStorage.removeItem(`project_icon_${projectId}`); // clean up legacy
       setMyProjects((prev) => prev.filter((p) => p.id !== projectId));
       setSharedProjects((prev) => prev.filter((p) => p.id !== projectId));
     } catch (error) {
@@ -126,18 +123,16 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     }
     setIsCreating(true);
     try {
-      const project = await apiClient.createProject(
+      const created = await apiClient.createProject(
         name,
         projectDescription.trim(),
         newProjectIsPublic,
-        user?.displayName
+        user?.displayName,
+        iconPreview ?? null,
       ) as { id: string };
-      if (iconPreview) {
-        saveProjectIcon(project.id, iconPreview);
-      }
       await loadProjects();
       closeNewProject();
-      onNavigateToRecords(project.id);
+      onNavigateToRecords(created.id);
     } catch (error: unknown) {
       console.error('Error creating project:', error);
       const message = error instanceof Error ? error.message : 'Error creating project. Please try again.';
@@ -311,7 +306,19 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
         </div>
       )}
 
-      {/* Filter cards + search */}
+      {/* Search bar */}
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Search projects..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none text-sm"
+        />
+      </div>
+
+      {/* Filter cards */}
       <div className="flex items-center gap-4 mb-6 flex-wrap">
         {/* My Projects filter card */}
         <button
@@ -331,7 +338,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
           </div>
         </button>
 
-        {/* Shared with Me filter card */}
+        {/* Shared Projects filter card */}
         <button
           onClick={() => setActiveTab(activeTab === 'shared' ? 'all' : 'shared')}
           className={`flex items-center space-x-3 px-5 py-3 rounded-xl border-2 transition shadow-sm ${
@@ -344,22 +351,10 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
             <Users className={`w-4 h-4 ${activeTab === 'shared' ? 'text-teal-600' : 'text-slate-400'}`} />
           </div>
           <div className="text-left">
-            <p className="text-xs text-slate-400 font-medium leading-none mb-0.5">Shared with Me</p>
+            <p className="text-xs text-slate-400 font-medium leading-none mb-0.5">Shared Projects</p>
             <p className={`text-lg font-bold leading-none ${activeTab === 'shared' ? 'text-teal-700' : 'text-slate-700'}`}>{sharedProjects.length}</p>
           </div>
         </button>
-
-        {/* Search — pushed right */}
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search projects..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white shadow-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none text-sm"
-          />
-        </div>
       </div>
 
       {/* Projects Grid */}
@@ -390,7 +385,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredProjects.map((project) => {
-            const icon = getProjectIcon(project.id);
+            const icon = project.icon_url ?? getLocalIcon(project.id);
             const canDelete = project.userRole === 'owner';
             return (
               <div

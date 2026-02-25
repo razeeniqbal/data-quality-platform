@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Table2, Target, FileText, Plus, Upload, X, Search, ChevronDown, ChevronRight, FilterX, Pencil, Trash2, Settings } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Table2, Target, FileText, Plus, Upload, X, Search, ChevronDown, ChevronRight, FilterX, Info, Pencil, Trash2, Settings } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 import { useUser } from '../contexts/UserContext';
 import Records from './Records';
@@ -12,6 +12,7 @@ type ProjectTab = 'records' | 'score';
 interface Dataset {
   id: string;
   name: string;
+  description: string | null;
   row_count: number;
   column_count: number;
   created_at: string;
@@ -54,14 +55,18 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
   const [showAddDataset, setShowAddDataset] = useState(false);
   const [addFile, setAddFile] = useState<File | null>(null);
   const [addDatasetName, setAddDatasetName] = useState('');
+  const [addDatasetDescription, setAddDatasetDescription] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Rename dataset
-  const [renameDatasetId, setRenameDatasetId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [isRenaming, setIsRenaming] = useState(false);
-  const renameInputRef = useRef<HTMLInputElement>(null);
+  // Dataset detail modal
+  const [detailDataset, setDetailDataset] = useState<Dataset | null>(null);
+  const [detailName, setDetailName] = useState('');
+  const [detailDescription, setDetailDescription] = useState('');
+  const [isSavingDetail, setIsSavingDetail] = useState(false);
+  const [detailEditMode, setDetailEditMode] = useState(false);
+
+  // (inline rename removed — now handled via detail modal)
 
   // Delete dataset
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
@@ -185,16 +190,17 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
 
   // Add dataset modal handlers
   async function handleAddDataset() {
-    if (!addFile) return;
+    if (!addFile || !addDatasetName.trim()) return;
     setIsAdding(true);
     try {
-      const ds = await apiClient.uploadDataset(projectId, addFile, addDatasetName.trim() || undefined) as Dataset;
+      const ds = await apiClient.uploadDataset(projectId, addFile, addDatasetName.trim(), addDatasetDescription.trim() || undefined) as Dataset;
       const updated = await apiClient.getProjectDatasets(projectId) as Dataset[];
       setDatasets(updated || []);
       setSelectedDatasetId(ds.id);
       setShowAddDataset(false);
       setAddFile(null);
       setAddDatasetName('');
+      setAddDatasetDescription('');
     } catch (error) {
       console.error('Error adding dataset:', error);
       alert('Failed to add dataset.');
@@ -203,24 +209,29 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
     }
   }
 
-  function openRename(ds: Dataset) {
-    setRenameDatasetId(ds.id);
-    setRenameValue(ds.name);
-    setTimeout(() => renameInputRef.current?.select(), 50);
+  function openDetail(ds: Dataset) {
+    setDetailEditMode(false);
+    setDetailDataset(ds);
+    setDetailName(ds.name);
+    setDetailDescription(ds.description ?? '');
   }
 
-  async function handleRenameDataset() {
-    if (!renameDatasetId || !renameValue.trim()) return;
-    setIsRenaming(true);
+  async function handleSaveDetail() {
+    if (!detailDataset || !detailName.trim()) return;
+    setIsSavingDetail(true);
     try {
-      await apiClient.renameDataset(renameDatasetId, renameValue.trim());
-      setDatasets(prev => prev.map(d => d.id === renameDatasetId ? { ...d, name: renameValue.trim() } : d));
-      setRenameDatasetId(null);
+      await apiClient.renameDataset(detailDataset.id, detailName.trim(), detailDescription.trim() || null);
+      setDatasets(prev => prev.map(d =>
+        d.id === detailDataset.id
+          ? { ...d, name: detailName.trim(), description: detailDescription.trim() || null }
+          : d
+      ));
+      setDetailDataset(prev => prev ? { ...prev, name: detailName.trim(), description: detailDescription.trim() || null } : null);
     } catch (error) {
-      console.error('Error renaming dataset:', error);
-      alert('Failed to rename dataset.');
+      console.error('Error updating dataset:', error);
+      alert('Failed to update dataset.');
     } finally {
-      setIsRenaming(false);
+      setIsSavingDetail(false);
     }
   }
 
@@ -359,78 +370,47 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                     <ul>
                       {datasets.map((ds) => (
                         <li key={ds.id} className="border-b border-slate-100 last:border-0 group/item">
-                          {/* Inline rename mode */}
-                          {renameDatasetId === ds.id ? (
-                            <div className="flex items-center gap-1.5 px-3 py-2 bg-teal-50">
-                              <input
-                                ref={renameInputRef}
-                                type="text"
-                                value={renameValue}
-                                onChange={e => setRenameValue(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') handleRenameDataset();
-                                  if (e.key === 'Escape') setRenameDatasetId(null);
-                                }}
-                                className="flex-1 min-w-0 text-xs border border-teal-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none"
-                                autoFocus
-                              />
-                              <button
-                                onClick={handleRenameDataset}
-                                disabled={isRenaming || !renameValue.trim()}
-                                className="text-xs px-2 py-1.5 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50 transition flex-shrink-0"
-                              >
-                                {isRenaming ? '...' : 'Save'}
-                              </button>
-                              <button
-                                onClick={() => setRenameDatasetId(null)}
-                                className="p-1 text-slate-400 hover:text-slate-600 transition flex-shrink-0"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
+                          <div className={`flex items-start gap-2.5 px-4 py-3 transition ${
+                            selectedDatasetId === ds.id ? 'bg-teal-50' : 'hover:bg-slate-50'
+                          }`}>
+                            <input
+                              type="radio"
+                              name="dataset"
+                              checked={selectedDatasetId === ds.id}
+                              onChange={() => setSelectedDatasetId(ds.id)}
+                              className="mt-0.5 accent-teal-600 flex-shrink-0 cursor-pointer"
+                            />
+                            <div className="min-w-0 flex-1 cursor-pointer" onClick={() => setSelectedDatasetId(ds.id)}>
+                              <p className={`text-sm font-medium truncate ${
+                                selectedDatasetId === ds.id ? 'text-teal-700' : 'text-slate-700'
+                              }`} title={ds.name}>{ds.name}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {ds.row_count.toLocaleString()} rows · {ds.column_count} cols
+                              </p>
                             </div>
-                          ) : (
-                            <div className={`flex items-start gap-2.5 px-4 py-3 transition ${
-                              selectedDatasetId === ds.id ? 'bg-teal-50' : 'hover:bg-slate-50'
-                            }`}>
-                              <input
-                                type="radio"
-                                name="dataset"
-                                checked={selectedDatasetId === ds.id}
-                                onChange={() => setSelectedDatasetId(ds.id)}
-                                className="mt-0.5 accent-teal-600 flex-shrink-0 cursor-pointer"
-                              />
-                              <div className="min-w-0 flex-1 cursor-pointer" onClick={() => setSelectedDatasetId(ds.id)}>
-                                <p className={`text-sm font-medium truncate ${
-                                  selectedDatasetId === ds.id ? 'text-teal-700' : 'text-slate-700'
-                                }`} title={ds.name}>{ds.name}</p>
-                                <p className="text-xs text-slate-400 mt-0.5">
-                                  {ds.row_count.toLocaleString()} rows · {ds.column_count} cols
-                                </p>
-                              </div>
-                              {/* Rename / Delete actions — visible on hover, owner/co-owner/editor only */}
+                            {/* Detail / Delete actions — visible on hover */}
+                            <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition flex-shrink-0 mt-0.5">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openDetail(ds); }}
+                                className="p-1 text-slate-400 hover:text-teal-600 rounded transition"
+                                title="Dataset details"
+                              >
+                                <Info className="w-3.5 h-3.5" />
+                              </button>
                               {(currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
-                                <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition flex-shrink-0 mt-0.5">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); openRename(ds); }}
-                                    className="p-1 text-slate-400 hover:text-teal-600 rounded transition"
-                                    title="Rename dataset"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteDataset(ds.id); }}
-                                    disabled={isDeletingId === ds.id}
-                                    className="p-1 text-slate-400 hover:text-red-500 rounded transition disabled:opacity-50"
-                                    title="Delete dataset"
-                                  >
-                                    {isDeletingId === ds.id
-                                      ? <div className="w-3.5 h-3.5 border border-slate-400 border-t-transparent rounded-full animate-spin" />
-                                      : <Trash2 className="w-3.5 h-3.5" />}
-                                  </button>
-                                </div>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteDataset(ds.id); }}
+                                  disabled={isDeletingId === ds.id}
+                                  className="p-1 text-slate-400 hover:text-red-500 rounded transition disabled:opacity-50"
+                                  title="Delete dataset"
+                                >
+                                  {isDeletingId === ds.id
+                                    ? <div className="w-3.5 h-3.5 border border-slate-400 border-t-transparent rounded-full animate-spin" />
+                                    : <Trash2 className="w-3.5 h-3.5" />}
+                                </button>
                               )}
                             </div>
-                          )}
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -611,29 +591,167 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
           : <Score projectId={projectId} />
       )}
 
+      {/* ── Dataset Detail Modal ── */}
+      {detailDataset && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-slate-800">Dataset Details</h2>
+                {detailEditMode && (
+                  <span className="text-xs bg-teal-100 text-teal-700 font-medium px-2 py-0.5 rounded-full">Editing</span>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setDetailDataset(null);
+                  setDetailEditMode(false);
+                }}
+                className="p-2 hover:bg-slate-100 rounded-lg transition"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Stats */}
+              <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-lg text-sm text-slate-500">
+                <span><span className="font-semibold text-slate-700">{detailDataset.row_count.toLocaleString()}</span> rows</span>
+                <span className="text-slate-300">·</span>
+                <span><span className="font-semibold text-slate-700">{detailDataset.column_count}</span> columns</span>
+                <span className="text-slate-300">·</span>
+                <span>Added {new Date(detailDataset.created_at).toLocaleDateString('en-GB')}</span>
+              </div>
+
+              {/* Name */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Dataset Name</label>
+                {detailEditMode ? (
+                  <input
+                    type="text"
+                    value={detailName}
+                    onChange={e => setDetailName(e.target.value)}
+                    autoFocus
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  />
+                ) : (
+                  <p className="px-4 py-2.5 bg-slate-50 rounded-lg text-sm text-slate-800 font-medium">{detailName}</p>
+                )}
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Description <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                {detailEditMode ? (
+                  <textarea
+                    value={detailDescription}
+                    onChange={e => setDetailDescription(e.target.value)}
+                    rows={3}
+                    placeholder="Add a description..."
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm resize-none outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  />
+                ) : (
+                  <p className={`px-4 py-2.5 bg-slate-50 rounded-lg text-sm min-h-[72px] ${detailDescription ? 'text-slate-700' : 'text-slate-400 italic'}`}>
+                    {detailDescription || 'No description'}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
+              <div>
+                {!detailEditMode && (currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
+                  <button
+                    onClick={() => setDetailEditMode(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm text-teal-700 border border-teal-300 rounded-lg hover:bg-teal-50 transition font-medium"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Edit
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {detailEditMode ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setDetailName(detailDataset.name);
+                        setDetailDescription(detailDataset.description ?? '');
+                        setDetailEditMode(false);
+                      }}
+                      className="px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => { await handleSaveDetail(); setDetailEditMode(false); }}
+                      disabled={!detailName.trim() || isSavingDetail}
+                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSavingDetail
+                        ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Saving...</span></>
+                        : <span>Save Changes</span>}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setDetailDataset(null)}
+                    className="px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition text-sm font-medium"
+                  >
+                    Close
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Add Dataset Modal — owner/co-owner/editor only ── */}
       {showAddDataset && currentUserRole !== 'viewer' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
               <h2 className="text-lg font-bold text-slate-800">Add Dataset</h2>
-              <button onClick={() => { setShowAddDataset(false); setAddFile(null); setAddDatasetName(''); }} className="p-2 hover:bg-slate-100 rounded-lg transition">
+              <button onClick={() => { setShowAddDataset(false); setAddFile(null); setAddDatasetName(''); setAddDatasetDescription(''); }} className="p-2 hover:bg-slate-100 rounded-lg transition">
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
             <div className="p-6 space-y-4">
-              {/* Custom name */}
+              {/* Dataset name — required */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Dataset Name <span className="text-slate-400 font-normal">(optional)</span>
+                  Dataset Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="Defaults to filename"
+                  placeholder="Enter a name for this dataset"
                   value={addDatasetName}
                   onChange={e => setAddDatasetName(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none text-sm"
+                  className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none text-sm ${
+                    addDatasetName.trim() === '' && addFile ? 'border-red-300 bg-red-50' : 'border-slate-300'
+                  }`}
                   autoFocus
+                />
+                {addDatasetName.trim() === '' && addFile && (
+                  <p className="text-xs text-red-500 mt-1">Dataset name is required</p>
+                )}
+              </div>
+              {/* Description — optional */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Description <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  placeholder="Brief description of this dataset"
+                  value={addDatasetDescription}
+                  onChange={e => setAddDatasetDescription(e.target.value)}
+                  rows={2}
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none text-sm resize-none"
                 />
               </div>
               {/* Drop zone */}
@@ -667,11 +785,11 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
               </div>
             </div>
             <div className="flex items-center justify-end space-x-3 px-6 py-4 border-t border-slate-200">
-              <button onClick={() => { setShowAddDataset(false); setAddFile(null); }}
+              <button onClick={() => { setShowAddDataset(false); setAddFile(null); setAddDatasetName(''); setAddDatasetDescription(''); }}
                 className="px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition text-sm font-medium">
                 Cancel
               </button>
-              <button onClick={handleAddDataset} disabled={!addFile || isAdding}
+              <button onClick={handleAddDataset} disabled={!addFile || !addDatasetName.trim() || isAdding}
                 className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                 {isAdding
                   ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Uploading...</span></>
