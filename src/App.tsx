@@ -38,15 +38,18 @@ function AppContent() {
       <header className="bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-500 text-white shadow-lg">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <button
+              onClick={() => { setCurrentPage('dashboard'); setSelectedProjectId(null); }}
+              className="flex items-center space-x-3 hover:opacity-80 transition"
+            >
               <div className="w-10 h-10 bg-white rounded flex items-center justify-center">
                 <span className="text-teal-700 font-bold text-xl">G</span>
               </div>
-              <div>
+              <div className="text-left">
                 <h1 className="text-xl font-bold">Governance Plus</h1>
                 <p className="text-xs text-teal-100">AEM ENERGY SOLUTIONS</p>
               </div>
-            </div>
+            </button>
 
             {/* User menu */}
             <div className="relative" ref={userMenuRef}>

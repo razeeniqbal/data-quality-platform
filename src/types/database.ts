@@ -51,6 +51,7 @@ export interface Template {
 export interface TemplateData {
   dimensionRules: Record<string, string[]>;
   configuredColumns: Record<string, string[]>;
+  columnConfigs?: Record<string, Record<string, unknown>>;
 }
 
 export interface AppUser {

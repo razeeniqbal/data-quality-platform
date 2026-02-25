@@ -156,15 +156,15 @@ export default function QualityDimensionCard({
               >
                 <span className="truncate flex-1">{column}</span>
                 <div className="flex items-center space-x-1 flex-shrink-0">
-                  {!isReadyType && onConfigure && (
+                  {onConfigure && (!isReadyType || dimension === 'completeness') && (
                     <button
                       onClick={() => onConfigure(dimension, column)}
                       className={`p-1 rounded transition ${
-                        isConfigured
-                          ? 'hover:bg-white/20 text-white'
-                          : 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
+                        !isReadyType && !isConfigured
+                          ? 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
+                          : 'hover:bg-white/20 text-white'
                       }`}
-                      title={isConfigured ? 'Reconfigure' : 'Configure required'}
+                      title={!isReadyType && !isConfigured ? 'Configure required' : isReadyType ? 'Configure (optional)' : 'Reconfigure'}
                     >
                       <Settings className="w-4 h-4" />
                     </button>

@@ -4,7 +4,6 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Searc
 import type { ColumnValueFilters } from './ProjectView';
 
 interface RecordsProps {
-  projectId?: string;
   datasetId: string | null;
   columnValueFilters?: ColumnValueFilters;
   onDataLoaded?: (rows: Record<string, string>[], columns: string[]) => void;

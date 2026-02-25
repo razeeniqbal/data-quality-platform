@@ -8,6 +8,7 @@ interface DimensionConfigModalProps {
   dimension: QualityDimension;
   dimensionName: string;
   column: string;
+  allColumns?: string[];
   existingConfig?: {
     config_data: Record<string, unknown>;
     is_configured: boolean;
@@ -21,12 +22,17 @@ export default function DimensionConfigModal({
   dimension,
   dimensionName,
   column,
+  allColumns = [],
   existingConfig,
   onSave,
 }: DimensionConfigModalProps) {
-  const [config, setConfig] = useState<Record<string, unknown>>(
-    existingConfig?.config_data || {}
-  );
+  const defaultConfig: Record<string, unknown> =
+    existingConfig?.config_data
+      ? existingConfig.config_data
+      : dimension === 'consistency'
+      ? { referenceSource: 'csv' }
+      : {};
+  const [config, setConfig] = useState<Record<string, unknown>>(defaultConfig);
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<{
     fileName: string;
@@ -35,6 +41,26 @@ export default function DimensionConfigModal({
   } | null>(null);
 
   if (!isOpen) return null;
+
+  function isSaveValid(): boolean {
+    if (dimension === 'completeness') {
+      if (config.checkMode === 'multi') {
+        const companionCols = (config.companionColumns as string[]) || [];
+        return companionCols.length > 0;
+      }
+      return true;
+    }
+    if (dimension === 'consistency') {
+      const source = config.referenceSource as string || 'csv';
+      if (source === 'csv') {
+        return !!(referenceFile && config.referenceMatchColumn);
+      }
+      if (source === 'database') {
+        return !!(config.referenceDataset && config.referenceDbColumn);
+      }
+    }
+    return true;
+  }
 
   async function handleSave() {
     try {
@@ -75,6 +101,83 @@ export default function DimensionConfigModal({
 
   function renderConfigFields() {
     switch (dimension) {
+      case 'completeness': {
+        const isMulti = config.checkMode === 'multi';
+        const companionCols = (config.companionColumns as string[]) || [];
+        // All columns except the one being configured
+        const otherCols = allColumns.filter(c => c !== column);
+
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Check Mode</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, checkMode: 'single', companionColumns: [] })}
+                  className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition text-left ${
+                    !isMulti
+                      ? 'border-teal-500 bg-teal-50 text-teal-800'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-semibold mb-0.5">Single Column</div>
+                  <div className="text-xs font-normal opacity-70">Each row passes if this column is non-empty</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, checkMode: 'multi' })}
+                  className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition text-left ${
+                    isMulti
+                      ? 'border-teal-500 bg-teal-50 text-teal-800'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-semibold mb-0.5">Multi-Column</div>
+                  <div className="text-xs font-normal opacity-70">Row passes only if all selected columns are non-empty</div>
+                </button>
+              </div>
+            </div>
+
+            {isMulti && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Companion Columns <span className="text-red-500">*</span>
+                  <span className="text-xs text-slate-400 font-normal ml-1">(must also be non-empty)</span>
+                </label>
+                {otherCols.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">No other columns available.</p>
+                ) : (
+                  <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                    {otherCols.map(col => (
+                      <label key={col} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={companionCols.includes(col)}
+                          onChange={e => {
+                            const next = e.target.checked
+                              ? [...companionCols, col]
+                              : companionCols.filter(c => c !== col);
+                            setConfig({ ...config, companionColumns: next });
+                          }}
+                          className="accent-teal-600"
+                        />
+                        <span className="text-sm text-slate-700">{col}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {isMulti && companionCols.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" /> Select at least one companion column.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
       case 'validity':
         return (
           <div className="space-y-4">
@@ -217,7 +320,7 @@ export default function DimensionConfigModal({
                 Reference Data Source
               </label>
               <select
-                value={config.referenceSource || 'csv'}
+                value={config.referenceSource as string || 'csv'}
                 onChange={(e) =>
                   setConfig({ ...config, referenceSource: e.target.value })
                 }
@@ -544,10 +647,23 @@ export default function DimensionConfigModal({
 
           {renderConfigFields()}
 
-          <div className="flex items-center justify-end mt-6 pt-6 border-t">
+          <div className="flex items-center justify-between mt-6 pt-6 border-t">
+            {!isSaveValid() && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                {dimension === 'completeness'
+                  ? 'Select at least one companion column.'
+                  : dimension === 'consistency' && (config.referenceSource as string || 'csv') === 'csv'
+                  ? !referenceFile
+                    ? 'Upload a reference CSV file to continue.'
+                    : 'Select a match column to continue.'
+                  : 'Fill in all required fields to continue.'}
+              </p>
+            )}
             <button
               onClick={handleSave}
-              className="px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition flex items-center space-x-2"
+              disabled={!isSaveValid()}
+              className="ml-auto px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
               <span>Save Configuration</span>

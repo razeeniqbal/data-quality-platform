@@ -30,12 +30,8 @@ export default function DimensionConfig() {
 
   async function loadDimensions() {
     try {
-      setDimensions([
-        { id: '1', name: 'Completeness', key: 'completeness', description: 'Check if all required fields have values', icon: 'check-circle', color: '#14b8a6', is_active: true, display_order: 1 },
-        { id: '2', name: 'Uniqueness', key: 'uniqueness', description: 'Check for duplicate values', icon: 'fingerprint', color: '#8b5cf6', is_active: true, display_order: 2 },
-        { id: '3', name: 'Consistency', key: 'consistency', description: 'Check data format and pattern consistency', icon: 'shield', color: '#f59e0b', is_active: true, display_order: 3 },
-        { id: '4', name: 'Validity', key: 'validity', description: 'Validate data against rules', icon: 'check-square', color: '#ef4444', is_active: true, display_order: 4 },
-      ]);
+      const data = await apiClient.getQualityDimensions();
+      setDimensions(data as QualityDimensionConfig[]);
     } catch (error) {
       console.error('Error loading dimensions:', error);
     } finally {

@@ -51,6 +51,8 @@ export default function QualityConfiguration({
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [hasTemplateAction, setHasTemplateAction] = useState(false);
+  const [isTemplateDirty, setIsTemplateDirty] = useState(false);
+  const [isUpdatingTemplate, setIsUpdatingTemplate] = useState(false);
   const [configuredColumns, setConfiguredColumns] = useState<Map<string, Set<string>>>(new Map());
   const [columnConfigs, setColumnConfigs] = useState<Map<string, Record<string, unknown>>>(new Map());
   const [configModal, setConfigModal] = useState<{
@@ -70,17 +72,12 @@ export default function QualityConfiguration({
 
   async function loadDimensions() {
     try {
-      const defaultDimensions: QualityDimensionConfig[] = [
-        { id: '1', name: 'Completeness', key: 'completeness', description: 'Check if all required fields have values', icon: 'check-circle', color: '#14b8a6', is_active: true, display_order: 1 },
-        { id: '2', name: 'Uniqueness', key: 'uniqueness', description: 'Check for duplicate values', icon: 'fingerprint', color: '#8b5cf6', is_active: true, display_order: 2 },
-        { id: '3', name: 'Consistency', key: 'consistency', description: 'Check data format and pattern consistency', icon: 'shield', color: '#f59e0b', is_active: true, display_order: 3 },
-        { id: '4', name: 'Validity', key: 'validity', description: 'Validate data against rules', icon: 'check-square', color: '#ef4444', is_active: true, display_order: 4 },
-      ];
-
-      setDimensions(defaultDimensions);
+      const data = await apiClient.getQualityDimensions() as QualityDimensionConfig[];
+      const activeDimensions = data.filter(d => d.is_active);
+      setDimensions(activeDimensions);
 
       const initialRules: DimensionRules = {};
-      defaultDimensions.forEach((dim) => {
+      activeDimensions.forEach((dim) => {
         initialRules[dim.key] = [];
       });
       setDimensionRules(initialRules);
@@ -113,6 +110,7 @@ export default function QualityConfiguration({
       ...prev,
       [dimension]: [...prev[dimension], column],
     }));
+    if (selectedTemplate) setIsTemplateDirty(true);
   }
 
   function handleRemoveColumn(dimension: QualityDimension, column: string) {
@@ -120,6 +118,7 @@ export default function QualityConfiguration({
       ...prev,
       [dimension]: prev[dimension].filter((col) => col !== column),
     }));
+    if (selectedTemplate) setIsTemplateDirty(true);
   }
 
   function handleClear() {
@@ -131,6 +130,7 @@ export default function QualityConfiguration({
     setConfiguredColumns(new Map());
     setColumnConfigs(new Map());
     setHasTemplateAction(false);
+    setIsTemplateDirty(false);
     setSelectedTemplate('');
   }
 
@@ -181,6 +181,7 @@ export default function QualityConfiguration({
       newColumnConfigs.set(configKey, configToStore);
       setColumnConfigs(newColumnConfigs);
 
+      if (selectedTemplate) setIsTemplateDirty(true);
       alert('Configuration saved successfully!');
     } catch (error) {
       console.error('Error saving configuration:', error);
@@ -209,6 +210,7 @@ export default function QualityConfiguration({
         configuredColumns: Object.fromEntries(
           Array.from(configuredColumns.entries()).map(([key, set]) => [key, Array.from(set)])
         ),
+        columnConfigs: Object.fromEntries(columnConfigs.entries()),
       };
 
       const saved = await apiClient.saveTemplate(templateName, templateData, datasetId);
@@ -223,6 +225,7 @@ export default function QualityConfiguration({
       setTemplates([...templates, newTemplate]);
       setSelectedTemplate(saved.id);
       setHasTemplateAction(true);
+      setIsTemplateDirty(false);
       alert('Template saved successfully!');
       setTemplateName('');
       setShowSaveTemplateModal(false);
@@ -231,6 +234,31 @@ export default function QualityConfiguration({
       alert('Error saving template. Please try again.');
     } finally {
       setIsSavingTemplate(false);
+    }
+  }
+
+  async function handleUpdateTemplate() {
+    if (!selectedTemplate) return;
+    setIsUpdatingTemplate(true);
+    try {
+      const templateData = {
+        dimensionRules,
+        configuredColumns: Object.fromEntries(
+          Array.from(configuredColumns.entries()).map(([key, set]) => [key, Array.from(set)])
+        ),
+        columnConfigs: Object.fromEntries(columnConfigs.entries()),
+      };
+      await apiClient.updateTemplate(selectedTemplate, templateData);
+      setTemplates(prev => prev.map(t =>
+        t.id === selectedTemplate ? { ...t, rules: templateData } : t
+      ));
+      setIsTemplateDirty(false);
+      alert('Template updated successfully!');
+    } catch (error) {
+      console.error('Error updating template:', error);
+      alert('Error updating template. Please try again.');
+    } finally {
+      setIsUpdatingTemplate(false);
     }
   }
 
@@ -251,14 +279,27 @@ export default function QualityConfiguration({
       setConfiguredColumns(configMap);
     }
 
+    if (templateData.columnConfigs) {
+      const colConfigMap = new Map<string, Record<string, unknown>>();
+      Object.entries(templateData.columnConfigs).forEach(([key, config]) => {
+        colConfigMap.set(key, config as Record<string, unknown>);
+      });
+      setColumnConfigs(colConfigMap);
+    }
+
     setSelectedTemplate(templateId);
     setHasTemplateAction(true);
+    setIsTemplateDirty(false);
     alert(`Template "${template.name}" loaded successfully!`);
   }
 
   async function handleExecute() {
     if (!hasTemplateAction) {
       alert('Please save or select a template before executing quality checks');
+      return;
+    }
+    if (!allRequiredConfigured) {
+      alert('Some columns still need configuration. Please configure all dimensions marked "NEEDS CONFIG" before executing.');
       return;
     }
 
@@ -298,11 +339,32 @@ export default function QualityConfiguration({
     const rowDetails: RowDetail[] = [];
 
     if (dimensionKey === 'completeness') {
+      const configKey = `${dimensionKey}:${columnName}`;
+      const colConfig = columnConfigs.get(configKey);
+      const isMulti = colConfig?.checkMode === 'multi';
+      const companionCols = isMulti ? (colConfig?.companionColumns as string[] || []) : [];
+
       rows.forEach((row, i) => {
         const value = row[columnName];
-        const passed = !!(value && String(value).trim() !== '');
+        const thisPassed = !!(value && String(value).trim() !== '');
+        let passed = thisPassed;
+        let reason = '';
+
+        if (!thisPassed) {
+          reason = 'Value is empty or null';
+        } else if (isMulti && companionCols.length > 0) {
+          const failedCompanion = companionCols.find(c => {
+            const v = row[c];
+            return !(v && String(v).trim() !== '');
+          });
+          if (failedCompanion) {
+            passed = false;
+            reason = `Companion column "${failedCompanion}" is empty or null`;
+          }
+        }
+
         if (passed) passedCount++; else failedCount++;
-        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Value is empty or null' });
+        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : reason });
       });
     } else if (dimensionKey === 'uniqueness') {
       const values = new Set();
@@ -456,6 +518,12 @@ export default function QualityConfiguration({
     return ['completeness', 'uniqueness'].includes(dimensionKey);
   };
 
+  // True if every column in every dimension that requires configuration has been configured
+  const allRequiredConfigured = Object.entries(dimensionRules).every(([dimKey, cols]) => {
+    if (isReadyType(dimKey)) return true;
+    return cols.every(col => configuredColumns.get(dimKey)?.has(col));
+  });
+
   function getLogicDescriptionForDimension(dimensionKey: string): string {
     const logicMap: Record<string, string> = {
       completeness: 'Checks if all values in the selected attributes are present and not null or empty.',
@@ -510,11 +578,30 @@ export default function QualityConfiguration({
             <Save className="w-4 h-4" />
             <span>Save Template</span>
           </button>
+          {selectedTemplate && isTemplateDirty && (
+            <button
+              onClick={handleUpdateTemplate}
+              disabled={isUpdatingTemplate}
+              className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isUpdatingTemplate ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Updating...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Update Template</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
         <div className="relative group">
           <button
             onClick={handleExecute}
-            disabled={totalConfigured === 0 || isExecuting || !hasTemplateAction}
+            disabled={totalConfigured === 0 || isExecuting || !hasTemplateAction || !allRequiredConfigured}
             className="px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center space-x-2"
           >
             {isExecuting ? (
@@ -529,9 +616,13 @@ export default function QualityConfiguration({
               </>
             )}
           </button>
-          {!hasTemplateAction && totalConfigured > 0 && (
-            <div className="absolute bottom-full right-0 mb-2 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-              Please save or select a template before executing quality checks.
+          {totalConfigured > 0 && !isExecuting && (
+            <div className="absolute bottom-full right-0 mb-2 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+              {!hasTemplateAction
+                ? 'Please save or select a template before executing.'
+                : !allRequiredConfigured
+                ? 'Some columns still need configuration. Click the "Configure" button on each NEEDS CONFIG dimension.'
+                : 'Ready to execute quality checks.'}
               <div className="absolute -bottom-1 right-6 w-2 h-2 bg-slate-800 transform rotate-45"></div>
             </div>
           )}
@@ -570,6 +661,7 @@ export default function QualityConfiguration({
           dimension={configModal.dimension}
           dimensionName={configModal.dimensionName}
           column={configModal.column}
+          allColumns={data.headers}
           onSave={handleSaveConfiguration}
         />
       )}

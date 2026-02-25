@@ -12,9 +12,6 @@ interface ProjectSettingsPanelProps {
   isOwner: boolean;
   onClose: () => void;
   onVisibilityChange: (isPublic: boolean) => Promise<void>;
-  onMemberAdded: (member: ProjectMember) => void;
-  onMemberRoleChanged: (memberId: string, role: 'owner' | 'editor' | 'viewer') => void;
-  onMemberRemoved: (memberId: string) => void;
 }
 
 function getRoleBadgeClass(role: 'owner' | 'editor' | 'viewer') {
@@ -48,9 +45,6 @@ export default function ProjectSettingsPanel({
   isOwner,
   onClose,
   onVisibilityChange,
-  onMemberAdded,
-  onMemberRoleChanged,
-  onMemberRemoved,
 }: ProjectSettingsPanelProps) {
   // Loaded data
   const [members, setMembers] = useState<ProjectMember[]>([]);
@@ -168,21 +162,18 @@ export default function ProjectSettingsPanel({
       for (const [memberId, role] of Object.entries(stagedRoles)) {
         await apiClient.updateMemberRole(memberId, role);
         setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m));
-        onMemberRoleChanged(memberId, role);
       }
 
       // 3. Removals
       for (const memberId of stagedRemovals) {
         await apiClient.removeProjectMember(memberId);
         setMembers(prev => prev.filter(m => m.id !== memberId));
-        onMemberRemoved(memberId);
       }
 
       // 4. New members
       for (const pending of pendingAdds) {
         const member = await apiClient.addProjectMember(projectId, pending.displayName, pending.role) as ProjectMember;
         setMembers(prev => [...prev, member]);
-        onMemberAdded(member);
       }
 
       // Clear staged state

@@ -52,7 +52,7 @@ class ApiClient {
       } else if (p.is_public) {
         userRole = 'viewer';
       } else if (isAdmin) {
-        userRole = 'viewer'; // admin can see but not edit
+        userRole = 'owner'; // admin has full control over all projects
       } else {
         return null; // not accessible
       }
@@ -312,14 +312,14 @@ class ApiClient {
   }
 
   // Quality Dimensions
-  async getQualityDimensions(projectId: string) {
+  async getQualityDimensions() {
     const { data, error } = await supabase
       .from('quality_dimension_config')
       .select('*')
       .order('display_order', { ascending: true });
 
     if (error) {
-      logger.error('Failed to get quality dimensions', new Error(error.message), { projectId });
+      logger.error('Failed to get quality dimensions', new Error(error.message));
       throw new Error(error.message);
     }
     return data;
@@ -426,6 +426,19 @@ class ApiClient {
     }
     logger.info('Saved template', { name, id: data.id });
     return data;
+  }
+
+  async updateTemplate(templateId: string, templateData: Record<string, unknown>) {
+    const { error } = await supabase
+      .from('quality_templates')
+      .update({ template_data: templateData })
+      .eq('id', templateId);
+
+    if (error) {
+      logger.error('Failed to update template', new Error(error.message), { templateId });
+      throw new Error(error.message);
+    }
+    logger.info('Updated template', { templateId });
   }
 
   async deleteTemplate(templateId: string) {

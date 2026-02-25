@@ -96,6 +96,8 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
           setCurrentUserRole('owner');
         } else if (project?.owner_name === user.displayName) {
           setCurrentUserRole('owner');
+        } else if (user.role === 'admin') {
+          setCurrentUserRole('owner');
         } else {
           const members = await apiClient.getProjectMembers(projectId) as Array<{ display_name: string | null; role: 'owner' | 'editor' | 'viewer' }>;
           const myMembership = members.find(m => m.display_name === user.displayName);
@@ -310,9 +312,6 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
             await apiClient.updateProject(projectId, { is_public: newValue });
             setIsPublic(newValue);
           }}
-          onMemberAdded={() => {}}
-          onMemberRoleChanged={() => {}}
-          onMemberRemoved={() => {}}
         />
       )}
 
@@ -570,7 +569,6 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
           {/* ── MAIN RECORDS ── */}
           <div className="flex-1 min-w-0">
             <Records
-              projectId={projectId}
               datasetId={selectedDatasetId}
               columnValueFilters={columnValueFilters}
               onDataLoaded={handleDataLoaded}
