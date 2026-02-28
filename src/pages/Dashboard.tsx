@@ -54,6 +54,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
   const [projectDescription, setProjectDescription] = useState('');
   const [newProjectIsPublic, setNewProjectIsPublic] = useState(false);
   const [iconPreview, setIconPreview] = useState<string | null>(null);
+  const [iconFile, setIconFile] = useState<File | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const iconInputRef = useRef<HTMLInputElement>(null);
 
@@ -94,6 +95,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     setProjectName('');
     setProjectDescription('');
     setIconPreview(null);
+    setIconFile(null);
     setShowNewProject(true);
   }
 
@@ -103,11 +105,13 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     setProjectDescription('');
     setNewProjectIsPublic(false);
     setIconPreview(null);
+    setIconFile(null);
   }
 
   function handleIconSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setIconFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => {
       setIconPreview(ev.target?.result as string);
@@ -123,13 +127,26 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
     }
     setIsCreating(true);
     try {
+      // Create the project first (without icon) to get the ID
       const created = await apiClient.createProject(
         name,
         projectDescription.trim(),
         newProjectIsPublic,
         user?.displayName,
-        iconPreview ?? null,
+        null,
       ) as { id: string };
+
+      // Upload icon to Supabase Storage and update the project with the public URL
+      if (iconFile) {
+        try {
+          const publicUrl = await apiClient.uploadProjectIcon(iconFile, created.id);
+          await apiClient.updateProject(created.id, { icon_url: publicUrl });
+        } catch {
+          // Icon upload failed — project still created, just without icon
+          console.error('Icon upload failed — project created without icon');
+        }
+      }
+
       await loadProjects();
       closeNewProject();
       onNavigateToRecords(created.id);
@@ -193,7 +210,7 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
                 </div>
                 {iconPreview && (
                   <button
-                    onClick={() => { setIconPreview(null); if (iconInputRef.current) iconInputRef.current.value = ''; }}
+                    onClick={() => { setIconPreview(null); setIconFile(null); if (iconInputRef.current) iconInputRef.current.value = ''; }}
                     className="text-xs text-slate-400 hover:text-red-500 transition"
                   >
                     Remove icon

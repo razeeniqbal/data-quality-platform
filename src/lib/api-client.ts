@@ -69,6 +69,27 @@ class ApiClient {
     return projects;
   }
 
+  async uploadProjectIcon(file: File, projectId: string): Promise<string> {
+    const ext = file.name.split('.').pop() || 'png';
+    const path = `${projectId}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('project-icons')
+      .upload(path, file, { upsert: true, contentType: file.type });
+
+    if (error) {
+      logger.error('Failed to upload project icon', new Error(error.message), { projectId });
+      throw new Error(error.message);
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('project-icons')
+      .getPublicUrl(path);
+
+    logger.info('Uploaded project icon', { projectId, path });
+    return urlData.publicUrl;
+  }
+
   async createProject(name: string, description?: string, is_public?: boolean, ownerName?: string, iconUrl?: string | null) {
     const { data, error } = await supabase
       .from('projects')

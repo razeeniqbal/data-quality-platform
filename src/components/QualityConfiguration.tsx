@@ -339,40 +339,31 @@ export default function QualityConfiguration({
     const rowDetails: RowDetail[] = [];
 
     if (dimensionKey === 'completeness') {
+      rows.forEach((row, i) => {
+        const value = row[columnName];
+        const passed = !!(value && String(value).trim() !== '');
+        if (passed) passedCount++; else failedCount++;
+        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Value is empty or null' });
+      });
+    } else if (dimensionKey === 'uniqueness') {
       const configKey = `${dimensionKey}:${columnName}`;
       const colConfig = columnConfigs.get(configKey);
       const isMulti = colConfig?.checkMode === 'multi';
       const companionCols = isMulti ? (colConfig?.companionColumns as string[] || []) : [];
 
+      const seen = new Set<string>();
       rows.forEach((row, i) => {
         const value = row[columnName];
-        const thisPassed = !!(value && String(value).trim() !== '');
-        let passed = thisPassed;
-        let reason = '';
-
-        if (!thisPassed) {
-          reason = 'Value is empty or null';
-        } else if (isMulti && companionCols.length > 0) {
-          const failedCompanion = companionCols.find(c => {
-            const v = row[c];
-            return !(v && String(v).trim() !== '');
-          });
-          if (failedCompanion) {
-            passed = false;
-            reason = `Companion column "${failedCompanion}" is empty or null`;
-          }
-        }
-
-        if (passed) passedCount++; else failedCount++;
-        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : reason });
-      });
-    } else if (dimensionKey === 'uniqueness') {
-      const values = new Set();
-      rows.forEach((row, i) => {
-        const value = row[columnName];
-        const passed = !!(value && !values.has(value));
-        if (passed) { values.add(value); passedCount++; } else { failedCount++; }
-        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Duplicate value' });
+        // Build composite key from primary column + companion columns
+        const key = isMulti && companionCols.length > 0
+          ? [columnName, ...companionCols].map(c => String(row[c] ?? '')).join('||')
+          : String(value ?? '');
+        const passed = !!(value && !seen.has(key));
+        if (passed) { seen.add(key); passedCount++; } else { failedCount++; }
+        const reason = passed ? undefined : isMulti
+          ? `Duplicate combination: ${[columnName, ...companionCols].map(c => `${c}="${row[c]}"`).join(', ')}`
+          : 'Duplicate value';
+        rowDetails.push({ rowIndex: i, value, passed, reason });
       });
     } else if (dimensionKey === 'validity') {
       const configKey = `${dimensionKey}:${columnName}`;
@@ -642,6 +633,7 @@ export default function QualityConfiguration({
             onConfigure={handleConfigure}
             isReadyType={isReadyType(dimension.key)}
             configuredColumns={configuredColumns.get(dimension.key) || new Set()}
+            columnConfigs={columnConfigs}
             logicDescription={getLogicDescriptionForDimension(dimension.key)}
           />
         ))}

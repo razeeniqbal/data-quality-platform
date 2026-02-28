@@ -43,7 +43,7 @@ export default function DimensionConfigModal({
   if (!isOpen) return null;
 
   function isSaveValid(): boolean {
-    if (dimension === 'completeness') {
+    if (dimension === 'uniqueness') {
       if (config.checkMode === 'multi') {
         const companionCols = (config.companionColumns as string[]) || [];
         return companionCols.length > 0;
@@ -101,10 +101,9 @@ export default function DimensionConfigModal({
 
   function renderConfigFields() {
     switch (dimension) {
-      case 'completeness': {
+      case 'uniqueness': {
         const isMulti = config.checkMode === 'multi';
         const companionCols = (config.companionColumns as string[]) || [];
-        // All columns except the one being configured
         const otherCols = allColumns.filter(c => c !== column);
 
         return (
@@ -122,7 +121,7 @@ export default function DimensionConfigModal({
                   }`}
                 >
                   <div className="font-semibold mb-0.5">Single Column</div>
-                  <div className="text-xs font-normal opacity-70">Each row passes if this column is non-empty</div>
+                  <div className="text-xs font-normal opacity-70">Each value in this column must be unique</div>
                 </button>
                 <button
                   type="button"
@@ -134,7 +133,7 @@ export default function DimensionConfigModal({
                   }`}
                 >
                   <div className="font-semibold mb-0.5">Multi-Column</div>
-                  <div className="text-xs font-normal opacity-70">Row passes only if all selected columns are non-empty</div>
+                  <div className="text-xs font-normal opacity-70">Combination of selected columns must be unique per row</div>
                 </button>
               </div>
             </div>
@@ -142,8 +141,8 @@ export default function DimensionConfigModal({
             {isMulti && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Companion Columns <span className="text-red-500">*</span>
-                  <span className="text-xs text-slate-400 font-normal ml-1">(must also be non-empty)</span>
+                  Combine With <span className="text-red-500">*</span>
+                  <span className="text-xs text-slate-400 font-normal ml-1">(columns to concatenate for uniqueness check)</span>
                 </label>
                 {otherCols.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">No other columns available.</p>
@@ -169,7 +168,7 @@ export default function DimensionConfigModal({
                 )}
                 {isMulti && companionCols.length === 0 && (
                   <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3.5 h-3.5" /> Select at least one companion column.
+                    <AlertCircle className="w-3.5 h-3.5" /> Select at least one column to combine with.
                   </p>
                 )}
               </div>
@@ -651,8 +650,8 @@ export default function DimensionConfigModal({
             {!isSaveValid() && (
               <p className="text-xs text-amber-600 flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                {dimension === 'completeness'
-                  ? 'Select at least one companion column.'
+                {dimension === 'uniqueness'
+                  ? 'Select at least one column to combine with.'
                   : dimension === 'consistency' && (config.referenceSource as string || 'csv') === 'csv'
                   ? !referenceFile
                     ? 'Upload a reference CSV file to continue.'

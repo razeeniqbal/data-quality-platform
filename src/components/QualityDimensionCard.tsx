@@ -12,6 +12,7 @@ interface QualityDimensionCardProps {
   onConfigure?: (dimension: QualityDimension, column: string) => void;
   isReadyType: boolean;
   configuredColumns?: Set<string>;
+  columnConfigs?: Map<string, Record<string, unknown>>;
   logicDescription?: string;
 }
 
@@ -25,6 +26,7 @@ export default function QualityDimensionCard({
   onConfigure,
   isReadyType,
   configuredColumns = new Set(),
+  columnConfigs = new Map(),
   logicDescription = '',
 }: QualityDimensionCardProps) {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -147,35 +149,51 @@ export default function QualityDimensionCard({
         <div className="flex-1 space-y-2 overflow-y-auto">
           {columns.map((column) => {
             const isConfigured = isReadyType || configuredColumns.has(column);
+            const configKey = `${dimension}:${column}`;
+            const colConfig = columnConfigs.get(configKey);
+            const isMulti = colConfig?.checkMode === 'multi';
+            const companionCols = isMulti ? (colConfig?.companionColumns as string[] || []) : [];
+
             return (
               <div
                 key={column}
-                className={`${classes.chip} px-3 py-2 rounded-lg flex items-center justify-between text-sm font-medium shadow-md ${
+                className={`${classes.chip} px-3 py-2 rounded-lg flex flex-col gap-1 text-sm font-medium shadow-md ${
                   !isReadyType && !isConfigured ? 'ring-2 ring-yellow-400' : ''
                 }`}
               >
-                <span className="truncate flex-1">{column}</span>
-                <div className="flex items-center space-x-1 flex-shrink-0">
-                  {onConfigure && (!isReadyType || dimension === 'completeness') && (
+                <div className="flex items-center justify-between">
+                  <span className="truncate flex-1">{column}</span>
+                  <div className="flex items-center space-x-1 flex-shrink-0">
+                    {onConfigure && (!isReadyType || dimension === 'uniqueness') && (
+                      <button
+                        onClick={() => onConfigure(dimension, column)}
+                        className={`p-1 rounded transition ${
+                          !isReadyType && !isConfigured
+                            ? 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
+                            : 'hover:bg-white/20 text-white'
+                        }`}
+                        title={!isReadyType && !isConfigured ? 'Configure required' : isReadyType ? 'Configure (optional)' : 'Reconfigure'}
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
-                      onClick={() => onConfigure(dimension, column)}
-                      className={`p-1 rounded transition ${
-                        !isReadyType && !isConfigured
-                          ? 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
-                          : 'hover:bg-white/20 text-white'
-                      }`}
-                      title={!isReadyType && !isConfigured ? 'Configure required' : isReadyType ? 'Configure (optional)' : 'Reconfigure'}
+                      onClick={() => onRemoveColumn(dimension, column)}
+                      className="hover:bg-white/20 p-1 rounded transition"
                     >
-                      <Settings className="w-4 h-4" />
+                      <X className="w-4 h-4" />
                     </button>
-                  )}
-                  <button
-                    onClick={() => onRemoveColumn(dimension, column)}
-                    className="hover:bg-white/20 p-1 rounded transition"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  </div>
                 </div>
+                {isMulti && companionCols.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {companionCols.map(c => (
+                      <span key={c} className="text-xs bg-white/20 rounded px-1.5 py-0.5 font-normal opacity-90">
+                        + {c}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
