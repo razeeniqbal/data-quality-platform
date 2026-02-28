@@ -62,6 +62,16 @@ export interface AppUser {
   last_seen_at: string;
 }
 
+export interface QualitySnapshot {
+  id: string;
+  dataset_id: string;
+  label: string;
+  published_by: string | null;
+  overall_score: number;
+  results: QualityResult[];
+  published_at: string;
+}
+
 export interface QualityDimensionConfig {
   id: string;
   name: string;

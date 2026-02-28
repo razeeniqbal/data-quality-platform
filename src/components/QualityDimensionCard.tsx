@@ -151,8 +151,55 @@ export default function QualityDimensionCard({
             const isConfigured = isReadyType || configuredColumns.has(column);
             const configKey = `${dimension}:${column}`;
             const colConfig = columnConfigs.get(configKey);
-            const isMulti = colConfig?.checkMode === 'multi';
-            const companionCols = isMulti ? (colConfig?.companionColumns as string[] || []) : [];
+
+            // Build config summary tags
+            const summaryTags: string[] = [];
+            if (colConfig) {
+              if (dimension === 'uniqueness') {
+                const isMulti = colConfig.checkMode === 'multi';
+                if (isMulti) {
+                  const companions = (colConfig.companionColumns as string[] || []);
+                  companions.forEach(c => summaryTags.push(`+ ${c}`));
+                } else {
+                  summaryTags.push('Single column');
+                }
+              } else if (dimension === 'validity') {
+                const vt = colConfig.validationType as string || 'pattern';
+                const labels: Record<string, string> = {
+                  pattern: 'Pattern',
+                  range: 'Range',
+                  list: 'Allowed values',
+                  datatype: 'Data type',
+                  sign: 'Sign',
+                };
+                summaryTags.push(labels[vt] ?? vt);
+                if (vt === 'pattern' && colConfig.pattern) summaryTags.push(String(colConfig.pattern));
+                if (vt === 'range') {
+                  if (colConfig.minValue !== undefined && colConfig.minValue !== '') summaryTags.push(`min: ${colConfig.minValue}`);
+                  if (colConfig.maxValue !== undefined && colConfig.maxValue !== '') summaryTags.push(`max: ${colConfig.maxValue}`);
+                }
+                if (vt === 'datatype' && colConfig.dataType) summaryTags.push(String(colConfig.dataType));
+                if (vt === 'sign' && colConfig.expectedSign) summaryTags.push(String(colConfig.expectedSign));
+                if (vt === 'list' && colConfig.allowedValues) {
+                  const vals = String(colConfig.allowedValues).split(',').map(s => s.trim()).filter(Boolean);
+                  if (vals.length <= 3) summaryTags.push(vals.join(', '));
+                  else summaryTags.push(`${vals.slice(0, 2).join(', ')} +${vals.length - 2}`);
+                }
+              } else if (dimension === 'consistency') {
+                const src = colConfig.referenceSource as string || 'csv';
+                summaryTags.push(src === 'csv' ? 'CSV ref' : 'DB ref');
+                if (src === 'csv' && colConfig.referenceFileName) summaryTags.push(String(colConfig.referenceFileName));
+                if (colConfig.referenceMatchColumn) summaryTags.push(`→ ${colConfig.referenceMatchColumn}`);
+                if (src === 'database' && colConfig.referenceDbColumn) summaryTags.push(`→ ${colConfig.referenceDbColumn}`);
+              } else if (dimension === 'accuracy') {
+                const method = colConfig.accuracyMethod as string || 'reference';
+                summaryTags.push(method === 'reference' ? 'vs CSV' : method === 'calculation' ? 'Calculation' : 'Threshold');
+                if (colConfig.threshold) summaryTags.push(`≥ ${colConfig.threshold}%`);
+              } else if (dimension === 'timeliness') {
+                if (colConfig.maxAgeDays) summaryTags.push(`≤ ${colConfig.maxAgeDays}d`);
+                if (colConfig.updateFrequency) summaryTags.push(String(colConfig.updateFrequency));
+              }
+            }
 
             return (
               <div
@@ -185,11 +232,11 @@ export default function QualityDimensionCard({
                     </button>
                   </div>
                 </div>
-                {isMulti && companionCols.length > 0 && (
+                {summaryTags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-0.5">
-                    {companionCols.map(c => (
-                      <span key={c} className="text-xs bg-white/20 rounded px-1.5 py-0.5 font-normal opacity-90">
-                        + {c}
+                    {summaryTags.map((tag, i) => (
+                      <span key={i} className="text-xs bg-white/20 rounded px-1.5 py-0.5 font-normal opacity-90 max-w-full truncate">
+                        {tag}
                       </span>
                     ))}
                   </div>

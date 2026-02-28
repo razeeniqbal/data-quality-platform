@@ -533,6 +533,58 @@ class ApiClient {
     return data;
   }
 
+  // Quality Snapshots
+  async publishQualitySnapshot(
+    datasetId: string,
+    label: string,
+    publishedBy: string,
+    overallScore: number,
+    results: Array<Record<string, unknown>>,
+  ) {
+    const { data, error } = await supabase
+      .from('quality_snapshots')
+      .insert({
+        dataset_id: datasetId,
+        label,
+        published_by: publishedBy,
+        overall_score: overallScore,
+        results,
+        published_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  async getQualitySnapshots(datasetId: string) {
+    const { data, error } = await supabase
+      .from('quality_snapshots')
+      .select('id, dataset_id, label, published_by, overall_score, published_at')
+      .eq('dataset_id', datasetId)
+      .order('published_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  async getQualitySnapshot(snapshotId: string) {
+    const { data, error } = await supabase
+      .from('quality_snapshots')
+      .select('*')
+      .eq('id', snapshotId)
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  async deleteQualitySnapshot(snapshotId: string) {
+    const { error } = await supabase
+      .from('quality_snapshots')
+      .delete()
+      .eq('id', snapshotId);
+    if (error) throw new Error(error.message);
+  }
+
   // App Users
   async loginOrCreateUser(displayName: string) {
     const now = new Date().toISOString();

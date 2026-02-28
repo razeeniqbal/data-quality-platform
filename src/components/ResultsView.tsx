@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, ArrowLeft, ChevronUp, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { Download, ArrowLeft, ChevronUp, CheckCircle, XCircle, Eye, Search, BookMarked, X } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 import type { QualityResult } from '../types/database';
 import type { QualityCheckResult, RowDetail } from './QualityConfiguration';
@@ -10,16 +10,29 @@ interface ResultWithDetails extends QualityResult {
 
 interface ResultsViewProps {
   datasetId: string;
+  datasetName?: string;
+  publishedBy?: string;
   initialResults?: QualityCheckResult[] | null;
   onBack: () => void;
+  onPublished?: () => void;
+  /** When true, hides the Publish button (used when viewing a saved snapshot) */
+  readOnly?: boolean;
 }
 
-export default function ResultsView({ datasetId, initialResults, onBack }: ResultsViewProps) {
+export default function ResultsView({ datasetId, datasetName, publishedBy, initialResults, onBack, onPublished, readOnly = false }: ResultsViewProps) {
   const [results, setResults] = useState<ResultWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'all' | 'pass' | 'fail'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Publish modal
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishLabel, setPublishLabel] = useState('');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishedToast, setPublishedToast] = useState(false);
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
   const [detailFilter, setDetailFilter] = useState<'all' | 'pass' | 'fail'>('all');
+  const [detailSearch, setDetailSearch] = useState('');
   const [detailPage, setDetailPage] = useState(0);
   const ROWS_PER_PAGE = 20;
 
@@ -88,12 +101,46 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
     URL.revokeObjectURL(url);
   }
 
+  async function handlePublish() {
+    const label = publishLabel.trim() || `Run ${new Date().toLocaleString('en-GB')}`;
+    setIsPublishing(true);
+    try {
+      await apiClient.publishQualitySnapshot(
+        datasetId,
+        label,
+        publishedBy ?? 'Unknown',
+        overallScore,
+        results.map(r => ({
+          id: r.id,
+          column_name: r.column_name,
+          dimension: r.dimension,
+          passed_count: r.passed_count,
+          failed_count: r.failed_count,
+          total_count: r.total_count,
+          score: r.score,
+          executed_at: r.executed_at,
+        })),
+      );
+      setShowPublishModal(false);
+      setPublishLabel('');
+      setPublishedToast(true);
+      setTimeout(() => setPublishedToast(false), 3500);
+      onPublished?.();
+    } catch (err) {
+      console.error('Publish failed:', err);
+      alert('Failed to publish. Please try again.');
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
   function toggleExpand(resultId: string) {
     if (expandedResult === resultId) {
       setExpandedResult(null);
     } else {
       setExpandedResult(resultId);
       setDetailFilter('all');
+      setDetailSearch('');
       setDetailPage(0);
     }
   }
@@ -101,6 +148,10 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
   const filteredResults = results.filter((result) => {
     if (filterStatus === 'pass' && result.score < 100) return false;
     if (filterStatus === 'fail' && result.score === 100) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!result.column_name.toLowerCase().includes(q) && !result.dimension.toLowerCase().includes(q)) return false;
+    }
     return true;
   });
 
@@ -124,6 +175,73 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
 
   return (
     <div className="space-y-6">
+      {/* Published toast */}
+      {publishedToast && (
+        <div className="fixed top-5 right-5 z-50 flex items-center gap-2 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-xl animate-fade-in">
+          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          <span className="text-sm font-medium">Results published successfully</span>
+        </div>
+      )}
+
+      {/* Publish modal */}
+      {showPublishModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="flex items-center justify-between p-5 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <BookMarked className="w-5 h-5 text-teal-600" />
+                <h2 className="text-base font-bold text-slate-800">Publish Results</h2>
+              </div>
+              <button onClick={() => setShowPublishModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition">
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-500">
+                Save a named snapshot of this quality run. All project members can view published results.
+              </p>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                  Snapshot Label <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={publishLabel}
+                  onChange={e => setPublishLabel(e.target.value)}
+                  placeholder={`e.g. Sprint 12 – ${datasetName ?? 'Dataset'}`}
+                  onKeyDown={e => e.key === 'Enter' && handlePublish()}
+                  autoFocus
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg text-xs text-slate-500">
+                <span>Overall score:</span>
+                <span className="font-bold text-slate-700">{overallScore.toFixed(1)}%</span>
+                <span className="mx-1">·</span>
+                <span>{results.length} check{results.length !== 1 ? 's' : ''}</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200">
+              <button
+                onClick={() => setShowPublishModal(false)}
+                className="px-4 py-2 text-sm text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePublish}
+                disabled={isPublishing}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition font-medium disabled:opacity-50"
+              >
+                {isPublishing
+                  ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Publishing...</span></>
+                  : <><BookMarked className="w-4 h-4" /><span>Publish</span></>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <button
@@ -131,7 +249,7 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
           className="flex items-center space-x-2 text-slate-600 hover:text-slate-800 transition"
         >
           <ArrowLeft className="w-5 h-5" />
-          <span>Back to Configuration</span>
+          <span>{readOnly ? 'Back to Snapshots' : 'Back to Configuration'}</span>
         </button>
         <div className="flex items-center space-x-4">
           <button
@@ -141,9 +259,15 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
             <Download className="w-4 h-4" />
             <span>Export</span>
           </button>
-          <button className="px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition font-medium">
-            Publish
-          </button>
+          {!readOnly && (
+            <button
+              onClick={() => setShowPublishModal(true)}
+              className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition font-medium"
+            >
+              <BookMarked className="w-4 h-4" />
+              <span>Publish</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -247,9 +371,21 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
 
       {/* Detailed Results Table */}
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200">
-          <h3 className="text-lg font-bold text-slate-800">Detailed Results</h3>
-          <p className="text-sm text-slate-500 mt-1">Click on any row to view per-record details</p>
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-lg font-bold text-slate-800">Detailed Results</h3>
+            <p className="text-sm text-slate-500 mt-0.5">Click on any row to view per-record details</p>
+          </div>
+          <div className="relative w-60">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search column or dimension..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
+            />
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -272,6 +408,13 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
                 const filteredDetails = (result.rowDetails || []).filter(d => {
                   if (detailFilter === 'pass') return d.passed;
                   if (detailFilter === 'fail') return !d.passed;
+                  if (detailSearch.trim()) {
+                    const q = detailSearch.toLowerCase();
+                    const valMatch = d.value !== null && d.value !== undefined && String(d.value).toLowerCase().includes(q);
+                    const reasonMatch = d.reason ? d.reason.toLowerCase().includes(q) : false;
+                    const rowMatch = String(d.rowIndex + 1).includes(q);
+                    if (!valMatch && !reasonMatch && !rowMatch) return false;
+                  }
                   return true;
                 });
 
@@ -338,16 +481,28 @@ export default function ResultsView({ datasetId, initialResults, onBack }: Resul
                         <td colSpan={7} className="px-0 py-0">
                           <div className="bg-slate-50 border-t-2 border-b-2 border-teal-200">
                             {/* Detail Header */}
-                            <div className="px-6 py-3 flex items-center justify-between bg-teal-50 border-b border-teal-100">
+                            <div className="px-6 py-3 flex items-center justify-between gap-3 bg-teal-50 border-b border-teal-100 flex-wrap">
                               <div className="flex items-center space-x-2">
                                 <span className="text-sm font-semibold text-teal-800">
                                   Row-Level Details: {result.column_name} ({result.dimension})
                                 </span>
                                 <span className="text-xs text-teal-600">
-                                  Showing {filteredDetails.length} of {result.rowDetails!.length} rows
+                                  {filteredDetails.length} of {result.rowDetails!.length} rows
                                 </span>
                               </div>
-                              <div className="flex items-center space-x-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {/* Row search */}
+                                <div className="relative" onClick={e => e.stopPropagation()}>
+                                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                                  <input
+                                    type="text"
+                                    placeholder="Search value or reason..."
+                                    value={detailSearch}
+                                    onChange={e => { setDetailSearch(e.target.value); setDetailPage(0); }}
+                                    className="pl-7 pr-3 py-1 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-400 focus:border-transparent outline-none bg-white w-44"
+                                  />
+                                </div>
+                                {/* Pass/Fail filter */}
                                 {(['all', 'pass', 'fail'] as const).map((f) => (
                                   <button
                                     key={f}

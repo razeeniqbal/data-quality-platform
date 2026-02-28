@@ -12,6 +12,7 @@ interface ProjectSettingsPanelProps {
   isOwner: boolean;
   onClose: () => void;
   onVisibilityChange: (isPublic: boolean) => Promise<void>;
+  onProjectInfoSaved?: (name: string, description: string) => void;
 }
 
 function getRoleBadgeClass(role: 'owner' | 'editor' | 'viewer') {
@@ -45,11 +46,18 @@ export default function ProjectSettingsPanel({
   isOwner,
   onClose,
   onVisibilityChange,
+  onProjectInfoSaved,
 }: ProjectSettingsPanelProps) {
   // Loaded data
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
+
+  // Project info edit
+  const [editName, setEditName] = useState(projectName);
+  const [editDescription, setEditDescription] = useState(projectDescription);
+  const [isSavingInfo, setIsSavingInfo] = useState(false);
+  const infoChanged = editName.trim() !== projectName || editDescription.trim() !== projectDescription;
 
   // Staged changes (not yet saved)
   const [stagedVisibility, setStagedVisibility] = useState<boolean>(isPublic);
@@ -92,6 +100,21 @@ export default function ProjectSettingsPanel({
     Object.keys(stagedRoles).length > 0 ||
     stagedRemovals.size > 0 ||
     pendingAdds.length > 0;
+
+  async function handleSaveInfo() {
+    const name = editName.trim();
+    if (!name) return;
+    setIsSavingInfo(true);
+    try {
+      await apiClient.updateProject(projectId, { name, description: editDescription.trim() || null });
+      onProjectInfoSaved?.(name, editDescription.trim());
+    } catch (err) {
+      console.error('Failed to save project info:', err);
+      alert('Could not save project info. Please try again.');
+    } finally {
+      setIsSavingInfo(false);
+    }
+  }
 
   function handleStageVisibility() {
     setStagedVisibility(v => !v);
@@ -237,9 +260,46 @@ export default function ProjectSettingsPanel({
           {/* ── Project Info ── */}
           <div className="px-6 py-5 border-b border-slate-100">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Project Info</p>
-            <p className="text-sm font-semibold text-slate-800">{projectName}</p>
-            {projectDescription && (
-              <p className="text-sm text-slate-500 mt-1 leading-relaxed">{projectDescription}</p>
+            {isOwner ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Project Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Description <span className="text-slate-400 font-normal">(optional)</span></label>
+                  <textarea
+                    value={editDescription}
+                    onChange={e => setEditDescription(e.target.value)}
+                    rows={2}
+                    placeholder="Brief description of this project"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none resize-none"
+                  />
+                </div>
+                {infoChanged && (
+                  <button
+                    onClick={handleSaveInfo}
+                    disabled={!editName.trim() || isSavingInfo}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white text-sm font-medium rounded-lg hover:from-teal-700 hover:to-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSavingInfo
+                      ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Saving...</span></>
+                      : <><Save className="w-3.5 h-3.5" /><span>Save Info</span></>}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-slate-800">{projectName}</p>
+                {projectDescription && (
+                  <p className="text-sm text-slate-500 mt-1 leading-relaxed">{projectDescription}</p>
+                )}
+              </>
             )}
           </div>
 

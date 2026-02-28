@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Table2, Target, FileText, Plus, Upload, X, Search, ChevronDown, ChevronRight, FilterX, Info, Pencil, Trash2, Settings } from 'lucide-react';
+import { ArrowLeft, Table2, Target, FileText, Plus, Upload, X, Search, ChevronDown, ChevronRight, FilterX, Info, Pencil, Trash2, Settings, BookMarked, BarChart2 } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 import { useUser } from '../contexts/UserContext';
 import Records from './Records';
 import Score from './Score';
 import ProjectSettingsPanel from '../components/ProjectSettingsPanel';
-import type { ProjectUserRole } from '../types/database';
+import type { ProjectUserRole, QualitySnapshot } from '../types/database';
 
 type ProjectTab = 'records' | 'score';
 
@@ -65,6 +65,10 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
   const [detailDescription, setDetailDescription] = useState('');
   const [isSavingDetail, setIsSavingDetail] = useState(false);
   const [detailEditMode, setDetailEditMode] = useState(false);
+  const [detailTab, setDetailTab] = useState<'info' | 'snapshots'>('info');
+  const [detailSnapshots, setDetailSnapshots] = useState<QualitySnapshot[]>([]);
+  const [detailSnapshotsLoading, setDetailSnapshotsLoading] = useState(false);
+  const [deletingDetailSnapshotId, setDeletingDetailSnapshotId] = useState<string | null>(null);
 
   // (inline rename removed — now handled via detail modal)
 
@@ -181,6 +185,11 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
     });
   }
 
+  // Select none = set filter to empty Set (show nothing for that column)
+  function selectNoneColumnValues(col: string) {
+    setColumnValueFilters(prev => ({ ...prev, [col]: new Set() }));
+  }
+
   function clearAllFilters() {
     setColumnValueFilters({});
   }
@@ -216,6 +225,41 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
     setDetailDataset(ds);
     setDetailName(ds.name);
     setDetailDescription(ds.description ?? '');
+    setDetailTab('info');
+    setDetailSnapshots([]);
+    loadDetailSnapshots(ds.id);
+  }
+
+  function closeDetail() {
+    setDetailDataset(null);
+    setDetailEditMode(false);
+    setDetailTab('info');
+  }
+
+  async function loadDetailSnapshots(dsId: string) {
+    setDetailSnapshotsLoading(true);
+    try {
+      const data = await apiClient.getQualitySnapshots(dsId) as QualitySnapshot[];
+      setDetailSnapshots(data || []);
+    } catch (err) {
+      console.error('Error loading snapshots:', err);
+    } finally {
+      setDetailSnapshotsLoading(false);
+    }
+  }
+
+  async function handleDeleteDetailSnapshot(snapshotId: string) {
+    if (!window.confirm('Delete this snapshot? This cannot be undone.')) return;
+    setDeletingDetailSnapshotId(snapshotId);
+    try {
+      await apiClient.deleteQualitySnapshot(snapshotId);
+      setDetailSnapshots(prev => prev.filter(s => s.id !== snapshotId));
+    } catch (err) {
+      console.error('Failed to delete snapshot:', err);
+      alert('Failed to delete snapshot. Please try again.');
+    } finally {
+      setDeletingDetailSnapshotId(null);
+    }
   }
 
   async function handleSaveDetail() {
@@ -312,6 +356,10 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
             await apiClient.updateProject(projectId, { is_public: newValue });
             setIsPublic(newValue);
           }}
+          onProjectInfoSaved={(name, description) => {
+            setProjectName(name);
+            setProjectDescription(description);
+          }}
         />
       )}
 
@@ -341,10 +389,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
         <div className="flex gap-4 items-start">
 
           {/* ── LEFT SIDEBAR ── */}
-          <div
-            className="w-64 flex-shrink-0 bg-white rounded-lg shadow-md flex flex-col overflow-hidden"
-            style={{ maxHeight: 'calc(100vh - 220px)', minHeight: 240 }}
-          >
+          <div className="w-64 flex-shrink-0 bg-white rounded-lg shadow-md flex flex-col overflow-hidden self-start">
 
             {/* ── SECTION 1: Dataset ── */}
             <div className="flex-shrink-0">
@@ -388,7 +433,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                               </p>
                             </div>
                             {/* Detail / Delete actions — visible on hover */}
-                            <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition flex-shrink-0 mt-0.5">
+                            <div className="flex items-center gap-0.5 opacity-30 group-hover/item:opacity-100 transition flex-shrink-0 mt-0.5">
                               <button
                                 onClick={(e) => { e.stopPropagation(); openDetail(ds); }}
                                 className="p-1 text-slate-400 hover:text-teal-600 rounded transition"
@@ -427,7 +472,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
             </div>
 
             {/* ── SECTION 2: Filters (column value filters) ── */}
-            <div className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
+            <div className="border-t border-slate-200">
               <button
                 onClick={() => setFiltersExpanded(p => !p)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200 hover:bg-slate-100 transition flex-shrink-0"
@@ -446,7 +491,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
               </button>
 
               {filtersExpanded && (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div>
                   {allColumns.length === 0 ? (
                     <p className="text-xs text-slate-400 text-center py-6 px-4">
                       {selectedDatasetId ? 'Loading attributes...' : 'Select a dataset to filter'}
@@ -479,8 +524,8 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                         </div>
                       )}
 
-                      {/* Scrollable column accordion list */}
-                      <div className="overflow-y-auto flex-1">
+                      {/* Column accordion list */}
+                      <div>
                         {filteredColumnList.length === 0 ? (
                           <p className="text-xs text-slate-400 text-center py-4">No attributes match</p>
                         ) : (
@@ -528,29 +573,45 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
 
                                 {/* Values checklist */}
                                 {isExpanded && (
-                                  <div className="bg-slate-50 border-t border-slate-100 max-h-48 overflow-y-auto">
+                                  <div className="bg-slate-50 border-t border-slate-100">
                                     {uniqueVals.length === 0 ? (
                                       <p className="text-xs text-slate-400 px-4 py-2">No values</p>
                                     ) : (
-                                      uniqueVals.map((val) => (
-                                        <label
-                                          key={val}
-                                          className="flex items-center gap-2 px-5 py-1.5 cursor-pointer hover:bg-white transition"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={selectedVals.has(val)}
-                                            onChange={() => toggleColumnValue(col, val)}
-                                            className="accent-teal-600 flex-shrink-0"
-                                          />
-                                          <span
-                                            className="text-xs text-slate-600 truncate"
-                                            title={val}
+                                      <>
+                                        {/* Select All / Clear row */}
+                                        <div className="flex items-center justify-between px-4 py-1.5 border-b border-slate-100">
+                                          <button
+                                            onClick={() => clearColumnFilter(col)}
+                                            className="text-xs text-teal-600 hover:text-teal-800 font-medium transition"
                                           >
-                                            {val === '' ? <em className="text-slate-400">(empty)</em> : val}
-                                          </span>
-                                        </label>
-                                      ))
+                                            Select All
+                                          </button>
+                                          <button
+                                            onClick={() => selectNoneColumnValues(col)}
+                                            className="text-xs text-slate-400 hover:text-red-500 font-medium transition"
+                                          >
+                                            Clear
+                                          </button>
+                                        </div>
+                                        <div className="max-h-48 overflow-y-auto">
+                                          {uniqueVals.map((val) => (
+                                            <label
+                                              key={val}
+                                              className="flex items-center gap-2 px-5 py-1.5 cursor-pointer hover:bg-white transition"
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={selectedVals.has(val)}
+                                                onChange={() => toggleColumnValue(col, val)}
+                                                className="accent-teal-600 flex-shrink-0"
+                                              />
+                                              <span className="text-xs text-slate-600 truncate" title={val}>
+                                                {val === '' ? <em className="text-slate-400">(empty)</em> : val}
+                                              </span>
+                                            </label>
+                                          ))}
+                                        </div>
+                                      </>
                                     )}
                                   </div>
                                 )}
@@ -578,42 +639,31 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
       )}
 
       {activeTab === 'score' && (
-        currentUserRole === 'viewer'
-          ? (
-            <div className="bg-white rounded-lg shadow-md flex flex-col items-center justify-center py-20 text-center">
-              <Target className="w-12 h-12 text-slate-300 mb-4" />
-              <p className="text-slate-600 font-semibold text-lg">View-only access</p>
-              <p className="text-slate-400 text-sm mt-1">Quality Score is only available to editors and owners.</p>
-            </div>
-          )
-          : <Score projectId={projectId} />
+        <Score
+          projectId={projectId}
+          isViewer={currentUserRole === 'viewer'}
+        />
       )}
 
       {/* ── Dataset Detail Modal ── */}
       {detailDataset && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[85vh]">
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+            <div className="flex items-center justify-between px-6 pt-6 pb-0 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-800">Dataset Details</h2>
                 {detailEditMode && (
                   <span className="text-xs bg-teal-100 text-teal-700 font-medium px-2 py-0.5 rounded-full">Editing</span>
                 )}
               </div>
-              <button
-                onClick={() => {
-                  setDetailDataset(null);
-                  setDetailEditMode(false);
-                }}
-                className="p-2 hover:bg-slate-100 rounded-lg transition"
-              >
+              <button onClick={closeDetail} className="p-2 hover:bg-slate-100 rounded-lg transition">
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              {/* Stats */}
+            {/* Stats bar */}
+            <div className="px-6 pt-4 pb-0 flex-shrink-0">
               <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-lg text-sm text-slate-500">
                 <span><span className="font-semibold text-slate-700">{detailDataset.row_count.toLocaleString()}</span> rows</span>
                 <span className="text-slate-300">·</span>
@@ -621,90 +671,185 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                 <span className="text-slate-300">·</span>
                 <span>Added {new Date(detailDataset.created_at).toLocaleDateString('en-GB')}</span>
               </div>
-
-              {/* Name */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Dataset Name</label>
-                {detailEditMode ? (
-                  <input
-                    type="text"
-                    value={detailName}
-                    onChange={e => setDetailName(e.target.value)}
-                    autoFocus
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  />
-                ) : (
-                  <p className="px-4 py-2.5 bg-slate-50 rounded-lg text-sm text-slate-800 font-medium">{detailName}</p>
-                )}
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Description <span className="text-slate-400 font-normal">(optional)</span>
-                </label>
-                {detailEditMode ? (
-                  <textarea
-                    value={detailDescription}
-                    onChange={e => setDetailDescription(e.target.value)}
-                    rows={3}
-                    placeholder="Add a description..."
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm resize-none outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  />
-                ) : (
-                  <p className={`px-4 py-2.5 bg-slate-50 rounded-lg text-sm min-h-[72px] ${detailDescription ? 'text-slate-700' : 'text-slate-400 italic'}`}>
-                    {detailDescription || 'No description'}
-                  </p>
-                )}
-              </div>
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
-              <div>
-                {!detailEditMode && (currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
-                  <button
-                    onClick={() => setDetailEditMode(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 text-sm text-teal-700 border border-teal-300 rounded-lg hover:bg-teal-50 transition font-medium"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    Edit
-                  </button>
+            {/* Tab switcher */}
+            <div className="flex border-b border-slate-200 mt-4 px-6 flex-shrink-0">
+              <button
+                onClick={() => setDetailTab('info')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition ${
+                  detailTab === 'info'
+                    ? 'border-teal-600 text-teal-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                Info
+              </button>
+              <button
+                onClick={() => setDetailTab('snapshots')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition ${
+                  detailTab === 'snapshots'
+                    ? 'border-teal-600 text-teal-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <BookMarked className="w-4 h-4" />
+                Snapshots
+                {detailSnapshots.length > 0 && (
+                  <span className="ml-1 text-xs bg-teal-100 text-teal-700 font-semibold px-1.5 py-0.5 rounded-full">
+                    {detailSnapshots.length}
+                  </span>
                 )}
-              </div>
-              <div className="flex items-center gap-3">
-                {detailEditMode ? (
-                  <>
+              </button>
+            </div>
+
+            {/* Tab content */}
+            <div className="flex-1 overflow-y-auto">
+              {detailTab === 'info' ? (
+                <div className="p-6 space-y-4">
+                  {/* Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Dataset Name</label>
+                    {detailEditMode ? (
+                      <input
+                        type="text"
+                        value={detailName}
+                        onChange={e => setDetailName(e.target.value)}
+                        autoFocus
+                        className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                      />
+                    ) : (
+                      <p className="px-4 py-2.5 bg-slate-50 rounded-lg text-sm text-slate-800 font-medium">{detailName}</p>
+                    )}
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Description <span className="text-slate-400 font-normal">(optional)</span>
+                    </label>
+                    {detailEditMode ? (
+                      <textarea
+                        value={detailDescription}
+                        onChange={e => setDetailDescription(e.target.value)}
+                        rows={3}
+                        placeholder="Add a description..."
+                        className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm resize-none outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                      />
+                    ) : (
+                      <p className={`px-4 py-2.5 bg-slate-50 rounded-lg text-sm min-h-[72px] ${detailDescription ? 'text-slate-700' : 'text-slate-400 italic'}`}>
+                        {detailDescription || 'No description'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Snapshots tab */
+                detailSnapshotsLoading ? (
+                  <div className="py-10 text-center text-slate-400 text-sm">
+                    <div className="animate-spin w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full mx-auto mb-2" />
+                    Loading snapshots...
+                  </div>
+                ) : detailSnapshots.length === 0 ? (
+                  <div className="py-10 text-center text-slate-400">
+                    <BookMarked className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm font-medium">No published snapshots yet</p>
+                    <p className="text-xs mt-1 text-slate-300">Run a quality check and click Publish.</p>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {detailSnapshots.map(snap => {
+                      const date = new Date(snap.published_at).toLocaleString('en-GB', {
+                        day: '2-digit', month: 'short', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit',
+                      });
+                      const scoreColor =
+                        snap.overall_score === 100 ? 'text-green-600' :
+                        snap.overall_score >= 75 ? 'text-yellow-600' :
+                        snap.overall_score >= 50 ? 'text-orange-600' :
+                        'text-red-600';
+                      return (
+                        <li key={snap.id} className="flex items-center gap-3 px-6 py-3.5 hover:bg-slate-50 transition group">
+                          <BarChart2 className="w-4 h-4 text-teal-400 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate">{snap.label}</p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {date}{snap.published_by ? ` · ${snap.published_by}` : ''}
+                            </p>
+                          </div>
+                          <span className={`text-base font-bold flex-shrink-0 ${scoreColor}`}>
+                            {snap.overall_score.toFixed(1)}%
+                          </span>
+                          {(currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
+                            <button
+                              onClick={() => handleDeleteDetailSnapshot(snap.id)}
+                              disabled={deletingDetailSnapshotId === snap.id}
+                              className="flex-shrink-0 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                              title="Delete snapshot"
+                            >
+                              {deletingDetailSnapshotId === snap.id
+                                ? <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                                : <Trash2 className="w-3.5 h-3.5" />
+                              }
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )
+              )}
+            </div>
+
+            {/* Footer — only shown on info tab */}
+            {detailTab === 'info' && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 flex-shrink-0">
+                <div>
+                  {!detailEditMode && (currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
                     <button
-                      onClick={() => {
-                        setDetailName(detailDataset.name);
-                        setDetailDescription(detailDataset.description ?? '');
-                        setDetailEditMode(false);
-                      }}
+                      onClick={() => setDetailEditMode(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 text-sm text-teal-700 border border-teal-300 rounded-lg hover:bg-teal-50 transition font-medium"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Edit
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  {detailEditMode ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          setDetailName(detailDataset.name);
+                          setDetailDescription(detailDataset.description ?? '');
+                          setDetailEditMode(false);
+                        }}
+                        className="px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition text-sm font-medium"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={async () => { await handleSaveDetail(); setDetailEditMode(false); }}
+                        disabled={!detailName.trim() || isSavingDetail}
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSavingDetail
+                          ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Saving...</span></>
+                          : <span>Save Changes</span>}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={closeDetail}
                       className="px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition text-sm font-medium"
                     >
-                      Cancel
+                      Close
                     </button>
-                    <button
-                      onClick={async () => { await handleSaveDetail(); setDetailEditMode(false); }}
-                      disabled={!detailName.trim() || isSavingDetail}
-                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isSavingDetail
-                        ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Saving...</span></>
-                        : <span>Save Changes</span>}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setDetailDataset(null)}
-                    className="px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition text-sm font-medium"
-                  >
-                    Close
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Crown, Edit, Eye, Users, Trash2, X, FileText, FolderOpen, ImageIcon, Lock, Globe } from 'lucide-react';
+import { Search, Crown, Edit, Eye, Users, Trash2, X, FileText, FolderOpen, ImageIcon, Lock, Globe, Star } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 import type { ProjectWithRole, ProjectUserRole } from '../types/database';
 import { useUser } from '../contexts/UserContext';
@@ -400,63 +400,49 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredProjects.map((project) => {
             const icon = project.icon_url ?? getLocalIcon(project.id);
             const canDelete = project.userRole === 'owner';
             return (
               <div
                 key={project.id}
-                className="bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-teal-200 transition cursor-pointer group flex flex-col"
+                className="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md hover:border-teal-200 transition cursor-pointer group flex flex-col"
                 onClick={() => onNavigateToRecords(project.id)}
               >
-                {/* Card header */}
-                <div className="p-5 flex items-start justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center">
-                      {icon
-                        ? <img src={icon} alt={project.name} className="w-full h-full object-cover" />
-                        : <FolderOpen className="w-6 h-6 text-white" />}
-                    </div>
-                  </div>
-                  {/* Role badge */}
-                  <div className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-medium border ${getRoleColor(project.userRole)}`}>
-                    {getRoleIcon(project.userRole)}
-                    <span>{getRoleLabel(project.userRole)}</span>
-                  </div>
-                </div>
-
-                {/* Card body */}
-                <div className="px-5 pb-4 flex-1">
-                  <h3 className="font-bold text-slate-800 text-base group-hover:text-teal-700 transition truncate" title={project.name}>
-                    {project.name}
-                  </h3>
-                  {project.description && (
-                    <p className="text-xs text-teal-600 mt-0.5 line-clamp-2" title={project.description}>
-                      {project.description}
-                    </p>
-                  )}
-                  <p className="text-xs text-slate-400 mt-1">
-                    Created: {new Date(project.created_at).toLocaleDateString('en-GB')}
-                  </p>
-                </div>
-
-                {/* Card footer */}
-                <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    onClick={() => onNavigateToRecords(project.id)}
-                    className="flex items-center space-x-1.5 text-sm text-teal-600 hover:text-teal-800 font-medium transition"
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>Open Datasets</span>
-                  </button>
-                  <div className="flex items-center space-x-2">
-                    {(project.member_count ?? 0) > 0 && (
-                      <div className="flex items-center space-x-1 text-xs text-slate-400">
-                        <Users className="w-3.5 h-3.5" />
-                        <span>{project.member_count}</span>
+                {/* Top section: thumbnail + name/date + star */}
+                <div className="flex items-start gap-3 p-4">
+                  {/* Square thumbnail */}
+                  <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden bg-gradient-to-br from-teal-500 to-emerald-600">
+                    {icon ? (
+                      <img src={icon} alt={project.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <FolderOpen className="w-7 h-7 text-white/80" />
                       </div>
                     )}
+                  </div>
+
+                  {/* Name + date */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-bold text-slate-800 text-sm group-hover:text-teal-700 transition leading-tight" title={project.name}>
+                      {project.name}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Modified: {new Date(project.created_at).toLocaleDateString('en-CA')}
+                    </p>
+                    {/* Role badge */}
+                    <div className={`inline-flex items-center space-x-1 mt-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${getRoleColor(project.userRole)}`}>
+                      {getRoleIcon(project.userRole)}
+                      <span>{getRoleLabel(project.userRole)}</span>
+                    </div>
+                  </div>
+
+                  {/* Star + delete actions */}
+                  <div className="flex flex-col items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <button className="p-1 text-slate-300 hover:text-yellow-400 transition" title="Bookmark">
+                      <Star className="w-4 h-4" />
+                    </button>
                     {canDelete && (
                       <button
                         onClick={(e) => handleDeleteProject(e, project.id)}
@@ -467,6 +453,29 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
                       </button>
                     )}
                   </div>
+                </div>
+
+                {/* Description */}
+                {project.description && (
+                  <p className="text-xs text-slate-500 px-4 pb-3 line-clamp-2 leading-relaxed" title={project.description}>
+                    {project.description}
+                  </p>
+                )}
+
+                {/* Footer: show datasets link + member count */}
+                <div className="px-4 py-2.5 border-t border-slate-100 flex items-center justify-between mt-auto" onClick={(e) => e.stopPropagation()}>
+                  {(project.member_count ?? 0) > 0 ? (
+                    <div className="flex items-center space-x-1 text-xs text-slate-400">
+                      <Users className="w-3.5 h-3.5" />
+                      <span>{project.member_count} member{(project.member_count ?? 0) !== 1 ? 's' : ''}</span>
+                    </div>
+                  ) : <span />}
+                  <button
+                    onClick={() => onNavigateToRecords(project.id)}
+                    className="text-xs text-teal-600 hover:text-teal-800 font-semibold transition"
+                  >
+                    Show datasets →
+                  </button>
                 </div>
               </div>
             );
