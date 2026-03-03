@@ -270,6 +270,33 @@ class ApiClient {
     return data;
   }
 
+  async createDatasetFromRows(
+    projectId: string,
+    name: string,
+    headers: string[],
+    rows: Record<string, string>[]
+  ) {
+    const { data, error } = await supabase
+      .from('datasets')
+      .insert({
+        project_id: projectId,
+        name: name.trim(),
+        row_count: rows.length,
+        column_count: headers.length,
+        file_data: rows,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Failed to create dataset from rows', new Error(error.message), { projectId, name });
+      throw new Error(error.message);
+    }
+
+    logger.info('Dataset created from rows', { projectId, name, datasetId: data.id });
+    return data;
+  }
+
   async getDataset(datasetId: string) {
     const { data, error } = await supabase
       .from('datasets')

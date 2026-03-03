@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import DimensionConfig from './pages/DimensionConfig';
+import GuidePage from './pages/GuidePage';
 import ProjectView from './pages/ProjectView';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
 import { useUser } from './contexts/UserContext';
-import { LayoutGrid, Network, Layers, Settings, LogOut, Shield, ChevronDown } from 'lucide-react';
+import { LayoutGrid, Network, Layers, Settings, LogOut, Shield, ChevronDown, BookOpen } from 'lucide-react';
 
-type Page = 'dashboard' | 'config' | 'records' | 'osdu' | 'upcoming' | 'admin';
+type Page = 'dashboard' | 'config' | 'guide' | 'records' | 'osdu' | 'upcoming' | 'admin';
 
 function AppContent() {
   const { user, logout } = useUser();
@@ -125,6 +126,17 @@ function AppContent() {
               <span className="font-medium">Configuration</span>
             </button>
             <button
+              onClick={() => setCurrentPage('guide')}
+              className={`flex items-center space-x-2 px-4 py-3 transition border-b-2 ${
+                currentPage === 'guide'
+                  ? 'border-teal-400 text-white bg-slate-600'
+                  : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-600'
+              }`}
+            >
+              <BookOpen className="w-5 h-5" />
+              <span className="font-medium">Guide</span>
+            </button>
+            <button
               onClick={() => setCurrentPage('osdu')}
               className={`flex items-center space-x-2 px-4 py-3 transition border-b-2 ${
                 currentPage === 'osdu'
@@ -157,6 +169,7 @@ function AppContent() {
           />
         )}
         {currentPage === 'config' && <DimensionConfig />}
+        {currentPage === 'guide' && <GuidePage />}
         {currentPage === 'records' && selectedProjectId && (
           <ProjectView
             projectId={selectedProjectId}
