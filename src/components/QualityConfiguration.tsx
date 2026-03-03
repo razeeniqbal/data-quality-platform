@@ -4,6 +4,16 @@ import type { QualityDimension, QualityDimensionConfig, Template } from '../type
 import QualityDimensionCard from './QualityDimensionCard';
 import DimensionConfigModal from './DimensionConfigModal';
 import { apiClient } from '../lib/api-client';
+import {
+  checkCompleteness,
+  checkUniqueness,
+  checkValidity,
+  checkConsistency,
+  type CompletenessConfig,
+  type ValidityConfig,
+  type UniquenessConfig,
+  type ConsistencyConfig,
+} from '../lib/quality-engine';
 
 interface QualityConfigurationProps {
   data: {
@@ -16,7 +26,7 @@ interface QualityConfigurationProps {
 
 export interface RowDetail {
   rowIndex: number;
-  value: string | number | boolean | null;
+  value: unknown;
   passed: boolean;
   reason?: string;
 }
@@ -110,6 +120,16 @@ export default function QualityConfiguration({
       ...prev,
       [dimension]: [...prev[dimension], column],
     }));
+    // Completeness columns start as "default" mode (always required) — mark as configured
+    // so the chip doesn't show a warning ring until the user explicitly switches to conditional mode
+    if (dimension === 'completeness') {
+      setConfiguredColumns(prev => {
+        const next = new Map(prev);
+        if (!next.has('completeness')) next.set('completeness', new Set());
+        next.get('completeness')!.add(column);
+        return next;
+      });
+    }
     if (selectedTemplate) setIsTemplateDirty(true);
   }
 
@@ -267,6 +287,31 @@ export default function QualityConfiguration({
     if (!template) return;
 
     const templateData = template.rules;
+
+    // Validate: find any columns in the template that no longer exist in the dataset
+    const availableColumns = new Set(data.headers);
+    const missingColumns: string[] = [];
+
+    if (templateData.dimensionRules) {
+      Object.entries(templateData.dimensionRules).forEach(([dimension, columns]) => {
+        (columns as string[]).forEach(col => {
+          if (!availableColumns.has(col)) {
+            missingColumns.push(`${col} (${dimension})`);
+          }
+        });
+      });
+    }
+
+    if (missingColumns.length > 0) {
+      alert(
+        `Cannot load template "${template.name}".\n\n` +
+        `The following columns no longer exist in this dataset (they may have been removed after trimming):\n\n` +
+        missingColumns.map(c => `  • ${c}`).join('\n') +
+        `\n\nPlease update or delete this template to match the current dataset columns.`
+      );
+      return;
+    }
+
     if (templateData.dimensionRules) {
       setDimensionRules(templateData.dimensionRules);
     }
@@ -306,25 +351,175 @@ export default function QualityConfiguration({
     setIsExecuting(true);
 
     try {
-      const results = [];
+      const allResults: QualityCheckResult[] = [];
 
-      // Execute quality checks locally
       for (const dimension of dimensions) {
-        const columns = dimensionRules[dimension.key] || [];
-        for (const column of columns) {
-          const result = await executeRule(dimension.key, column, data.rows);
-          results.push(result);
+        const columns: string[] = dimensionRules[dimension.key] || [];
+        if (columns.length === 0) continue;
+
+        if (dimension.key === 'completeness') {
+          const configs: CompletenessConfig[] = columns.map(col => {
+            const colConfig = columnConfigs.get(`completeness:${col}`);
+            const isConditional = colConfig?.checkMode === 'conditional';
+            if (isConditional && colConfig?.conditionColumn) {
+              const rawValues = (colConfig.conditionValues as string || '');
+              return {
+                column: col,
+                mode: 'conditional',
+                conditionColumn: colConfig.conditionColumn as string,
+                conditionValues: rawValues.split(',').map((v: string) => v.trim()).filter(Boolean),
+              };
+            }
+            return { column: col, mode: 'default' };
+          });
+          const engineResults = checkCompleteness(data.rows, configs);
+          engineResults.forEach(r => {
+            allResults.push({ ...r, dimension: 'completeness' as QualityDimension });
+          });
+
+        } else if (dimension.key === 'uniqueness') {
+          const configs: UniquenessConfig[] = columns.map(col => {
+            const colConfig = columnConfigs.get(`uniqueness:${col}`);
+            const isMulti = colConfig?.checkMode === 'multi';
+            return {
+              column: col,
+              mode: isMulti ? 'multi' : 'single',
+              companionColumns: isMulti ? (colConfig?.companionColumns as string[] ?? []) : [],
+            };
+          });
+          const engineResults = checkUniqueness(data.rows, configs);
+          engineResults.forEach(r => {
+            allResults.push({ ...r, dimension: 'uniqueness' as QualityDimension });
+          });
+
+        } else if (dimension.key === 'validity') {
+          const configs: ValidityConfig[] = columns.map(col => {
+            const colConfig = columnConfigs.get(`validity:${col}`) ?? {};
+            const vType = (colConfig.validationType as string) ?? 'pattern';
+
+            // Map UI validationType strings to engine ruleType
+            const ruleTypeMap: Record<string, ValidityConfig['ruleType']> = {
+              sign:             'sign' as ValidityConfig['ruleType'],
+              range:            'vali_val_rang',
+              list:             'vali_list_str',
+              pattern:          'pattern',
+              datatype:         'datatype',
+              vali_val_pos:     'vali_val_pos',
+              vali_val_neg:     'vali_val_neg',
+              vali_val_rang:    'vali_val_rang',
+              vali_high_val:    'vali_high_val',
+              vali_low_val:     'vali_low_val',
+              vali_high_col:    'vali_high_col',
+              vali_low_col:     'vali_low_col',
+              vali_list_str:    'vali_list_str',
+              vali_if_str_rang: 'vali_if_str_rang',
+              vali_if_col_rang: 'vali_if_col_rang',
+            };
+
+            // Parse condition values string → array for conditional rules
+            const conditionValuesRaw = colConfig.conditionValues as string | undefined;
+            const conditionValues = conditionValuesRaw
+              ? conditionValuesRaw.split(',').map((v: string) => v.trim()).filter(Boolean)
+              : undefined;
+
+            return {
+              column: col,
+              ruleType: ruleTypeMap[vType] ?? 'pattern',
+              // range
+              min: colConfig.minValue !== undefined ? Number(colConfig.minValue) : undefined,
+              max: colConfig.maxValue !== undefined ? Number(colConfig.maxValue) : undefined,
+              // threshold
+              threshold: colConfig.threshold !== undefined ? Number(colConfig.threshold) : undefined,
+              // column compare
+              compareToColumn: colConfig.compareToColumn as string | undefined,
+              // conditional range
+              conditionColumn: colConfig.conditionColumn as string | undefined,
+              conditionValues,
+              // conditional column range
+              minColumn: colConfig.minColumn as string | undefined,
+              maxColumn: colConfig.maxColumn as string | undefined,
+              // list
+              allowedValues: colConfig.allowedValues as string | undefined,
+              values: colConfig.values as string[] | undefined,
+              // pattern
+              pattern: colConfig.pattern as string | undefined,
+              // datatype
+              dataType: colConfig.dataType as ValidityConfig['dataType'],
+              // sign
+              expectedSign: colConfig.expectedSign as ValidityConfig['expectedSign'],
+            };
+          });
+          const engineResults = checkValidity(data.rows, configs);
+          engineResults.forEach(r => {
+            allResults.push({ ...r, dimension: 'validity' as QualityDimension });
+          });
+
+        } else if (dimension.key === 'consistency') {
+          // Build reference value sets (async — CSV or DB) or inline list
+          const configs: ConsistencyConfig[] = [];
+          for (const col of columns) {
+            const colConfig = columnConfigs.get(`consistency:${col}`);
+            const source = colConfig?.referenceSource as string || 'csv';
+
+            if (source === 'list') {
+              // cons_list_str: inline comma-separated values
+              const raw = (colConfig?.inlineValues as string || '');
+              const inlineValues = raw.split(',').map((v: string) => v.trim()).filter(Boolean);
+              configs.push({ column: col, mode: 'list', inlineValues });
+            } else if (source === 'csv' && colConfig?.parsedReferenceValues) {
+              const referenceValues = new Set(
+                (colConfig.parsedReferenceValues as string[]).map(v => String(v).trim().toLowerCase())
+              );
+              configs.push({ column: col, mode: 'reference', referenceValues });
+            } else if (source === 'database' && colConfig?.referenceDatasetId && colConfig.referenceDbColumn) {
+              const referenceValues = new Set<string>();
+              try {
+                const refRows = await apiClient.previewDataset(colConfig.referenceDatasetId as string, 100000) as Record<string, string>[];
+                const refCol = colConfig.referenceDbColumn as string;
+                for (const refRow of refRows) {
+                  const val = refRow[refCol];
+                  if (val !== null && val !== undefined && String(val).trim() !== '') {
+                    referenceValues.add(String(val).trim().toLowerCase());
+                  }
+                }
+              } catch (error) {
+                console.error('Error fetching reference dataset:', error);
+              }
+              configs.push({ column: col, mode: 'reference', referenceValues });
+            } else {
+              configs.push({ column: col, mode: 'reference', referenceValues: new Set() });
+            }
+          }
+          const engineResults = checkConsistency(data.rows, configs);
+          engineResults.forEach(r => {
+            allResults.push({ ...r, dimension: 'consistency' as QualityDimension });
+          });
+
+        } else {
+          // Other dimensions (accuracy, timeliness) — pass-through until implemented
+          columns.forEach(col => {
+            allResults.push({
+              id: `${dimension.key}-${col}`,
+              column_name: col,
+              dimension: dimension.key as QualityDimension,
+              passed_count: data.rows.length,
+              failed_count: 0,
+              total_count: data.rows.length,
+              score: 100,
+              rowDetails: data.rows.map((row, i) => ({ rowIndex: i, value: row[col], passed: true })),
+            });
+          });
         }
       }
 
       // Save results to database
       try {
-        await apiClient.saveQualityResults(datasetId, results);
+        await apiClient.saveQualityResults(datasetId, allResults);
       } catch (saveError) {
         console.error('Error saving results to database:', saveError);
       }
 
-      onExecute(results);
+      onExecute(allResults);
     } catch (error) {
       console.error('Error executing rules:', error);
       alert('Error executing quality checks. Please try again.');
@@ -333,172 +528,44 @@ export default function QualityConfiguration({
     }
   }
 
-  async function executeRule(dimensionKey: string, columnName: string, rows: Array<Record<string, string | number | boolean | null>>): Promise<QualityCheckResult> {
-    let passedCount = 0;
-    let failedCount = 0;
-    const rowDetails: RowDetail[] = [];
-
-    if (dimensionKey === 'completeness') {
-      rows.forEach((row, i) => {
-        const value = row[columnName];
-        const passed = !!(value && String(value).trim() !== '');
-        if (passed) passedCount++; else failedCount++;
-        rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Value is empty or null' });
-      });
-    } else if (dimensionKey === 'uniqueness') {
-      const configKey = `${dimensionKey}:${columnName}`;
-      const colConfig = columnConfigs.get(configKey);
-      const isMulti = colConfig?.checkMode === 'multi';
-      const companionCols = isMulti ? (colConfig?.companionColumns as string[] || []) : [];
-
-      const seen = new Set<string>();
-      rows.forEach((row, i) => {
-        const value = row[columnName];
-        // Build composite key from primary column + companion columns
-        const key = isMulti && companionCols.length > 0
-          ? [columnName, ...companionCols].map(c => String(row[c] ?? '')).join('||')
-          : String(value ?? '');
-        const passed = !!(value && !seen.has(key));
-        if (passed) { seen.add(key); passedCount++; } else { failedCount++; }
-        const reason = passed ? undefined : isMulti
-          ? `Duplicate combination: ${[columnName, ...companionCols].map(c => `${c}="${row[c]}"`).join(', ')}`
-          : 'Duplicate value';
-        rowDetails.push({ rowIndex: i, value, passed, reason });
-      });
-    } else if (dimensionKey === 'validity') {
-      const configKey = `${dimensionKey}:${columnName}`;
-      const colConfig = columnConfigs.get(configKey);
-
-      if (colConfig?.validationType === 'sign') {
-        const expectPositive = colConfig.expectedSign !== 'negative';
-        rows.forEach((row, i) => {
-          const value = row[columnName];
-          const num = Number(value);
-          let passed = false;
-          let reason = '';
-          if (value === null || value === '' || isNaN(num)) {
-            reason = 'Not a valid number';
-          } else if (expectPositive ? num >= 0 : num < 0) {
-            passed = true;
-          } else {
-            reason = expectPositive ? 'Expected positive value' : 'Expected negative value';
-          }
-          if (passed) passedCount++; else failedCount++;
-          rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : reason });
-        });
-      } else if (colConfig?.validationType === 'pattern') {
-        const regex = new RegExp(colConfig.pattern as string);
-        rows.forEach((row, i) => {
-          const value = String(row[columnName] ?? '');
-          const passed = regex.test(value);
-          if (passed) passedCount++; else failedCount++;
-          rowDetails.push({ rowIndex: i, value: row[columnName], passed, reason: passed ? undefined : `Does not match pattern: ${colConfig.pattern}` });
-        });
-      } else if (colConfig?.validationType === 'range') {
-        const min = Number(colConfig.minValue);
-        const max = Number(colConfig.maxValue);
-        rows.forEach((row, i) => {
-          const num = Number(row[columnName]);
-          const passed = !isNaN(num) && num >= min && num <= max;
-          if (passed) passedCount++; else failedCount++;
-          rowDetails.push({ rowIndex: i, value: row[columnName], passed, reason: passed ? undefined : `Value out of range [${min}, ${max}]` });
-        });
-      } else if (colConfig?.validationType === 'list') {
-        const allowed = String(colConfig.allowedValues || '').split(',').map(v => v.trim());
-        rows.forEach((row, i) => {
-          const value = String(row[columnName] ?? '').trim();
-          const passed = allowed.includes(value);
-          if (passed) passedCount++; else failedCount++;
-          rowDetails.push({ rowIndex: i, value: row[columnName], passed, reason: passed ? undefined : 'Value not in allowed list' });
-        });
-      } else if (colConfig?.validationType === 'datatype') {
-        rows.forEach((row, i) => {
-          const value = row[columnName];
-          let passed = false;
-          switch (colConfig.dataType) {
-            case 'number': passed = value !== null && value !== '' && !isNaN(Number(value)); break;
-            case 'email': passed = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? '')); break;
-            case 'url': passed = /^https?:\/\/.+/.test(String(value ?? '')); break;
-            case 'date': passed = !isNaN(Date.parse(String(value ?? ''))); break;
-            default: passed = value !== null && value !== '';
-          }
-          if (passed) passedCount++; else failedCount++;
-          rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : `Invalid ${colConfig.dataType}` });
-        });
-      } else {
-        passedCount = rows.length;
-        rows.forEach((row, i) => {
-          rowDetails.push({ rowIndex: i, value: row[columnName], passed: true });
-        });
-      }
-    } else if (dimensionKey === 'consistency') {
-      const configKey = `${dimensionKey}:${columnName}`;
-      const colConfig = columnConfigs.get(configKey);
-
-      let referenceValues: Set<string> = new Set();
-
-      if (colConfig?.referenceSource === 'csv' && colConfig.parsedReferenceValues) {
-        referenceValues = new Set((colConfig.parsedReferenceValues as string[]).map(v => String(v).trim().toLowerCase()));
-      } else if (colConfig?.referenceSource === 'database' && colConfig.referenceDatasetId && colConfig.referenceDbColumn) {
-        try {
-          const refRows = await apiClient.previewDataset(colConfig.referenceDatasetId as string, 100000) as Record<string, string>[];
-          const refCol = colConfig.referenceDbColumn as string;
-          for (const refRow of refRows) {
-            const val = refRow[refCol];
-            if (val !== null && val !== undefined && String(val).trim() !== '') {
-              referenceValues.add(String(val).trim().toLowerCase());
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching reference dataset:', error);
-          failedCount = rows.length;
-          rows.forEach((row, i) => {
-            rowDetails.push({ rowIndex: i, value: row[columnName], passed: false, reason: 'Reference data fetch failed' });
-          });
-        }
-      }
-
-      if (referenceValues.size > 0) {
-        rows.forEach((row, i) => {
-          const value = row[columnName];
-          let passed = false;
-          if (value !== null && value !== undefined && String(value).trim() !== '') {
-            passed = referenceValues.has(String(value).trim().toLowerCase());
-          }
-          if (passed) passedCount++; else failedCount++;
-          rowDetails.push({ rowIndex: i, value, passed, reason: passed ? undefined : 'Value not found in reference data' });
-        });
-      } else if (failedCount === 0) {
-        passedCount = rows.length;
-        rows.forEach((row, i) => {
-          rowDetails.push({ rowIndex: i, value: row[columnName], passed: true });
-        });
-      }
-    } else {
-      passedCount = rows.length;
-      rows.forEach((row, i) => {
-        rowDetails.push({ rowIndex: i, value: row[columnName], passed: true });
-      });
+  const referencedColumnsInUse = new Set<string>();
+  columnConfigs.forEach((cfg, key) => {
+    // Uniqueness: companion columns (multi-column mode)
+    if (key.startsWith('uniqueness:') && cfg.checkMode === 'multi') {
+      (cfg.companionColumns as string[] ?? []).forEach(c => referencedColumnsInUse.add(c));
     }
-
-    const totalCount = passedCount + failedCount;
-    const score = totalCount > 0 ? (passedCount / totalCount) * 100 : 0;
-
-    return {
-      id: `${dimensionKey}-${columnName}`,
-      column_name: columnName,
-      dimension: dimensionKey as QualityDimension,
-      passed_count: passedCount,
-      failed_count: failedCount,
-      total_count: totalCount,
-      score: score,
-      rowDetails,
-    };
-  }
+    // Validity: any column referenced in configuration
+    if (key.startsWith('validity:')) {
+      if (cfg.conditionColumn) referencedColumnsInUse.add(cfg.conditionColumn as string);
+      if (cfg.compareToColumn) referencedColumnsInUse.add(cfg.compareToColumn as string);
+      if (cfg.minColumn) referencedColumnsInUse.add(cfg.minColumn as string);
+      if (cfg.maxColumn) referencedColumnsInUse.add(cfg.maxColumn as string);
+    }
+    // Completeness: condition column (conditional mode)
+    if (key.startsWith('completeness:') && cfg.conditionColumn) {
+      referencedColumnsInUse.add(cfg.conditionColumn as string);
+    }
+  });
 
   const availableColumns = data.headers.filter(
-    (header) => !Object.values(dimensionRules).some(columns => columns.includes(header))
+    (header) =>
+      !Object.values(dimensionRules).some(columns => columns.includes(header)) &&
+      !referencedColumnsInUse.has(header)
   );
+
+  // Pre-compute which templates have columns that no longer exist in the dataset
+  const datasetColumnSet = new Set(data.headers);
+  function getTemplateMissingColumns(template: Template): string[] {
+    const missing: string[] = [];
+    if (template.rules.dimensionRules) {
+      Object.entries(template.rules.dimensionRules).forEach(([dimension, columns]) => {
+        (columns as string[]).forEach(col => {
+          if (!datasetColumnSet.has(col)) missing.push(`${col} (${dimension})`);
+        });
+      });
+    }
+    return missing;
+  }
 
   const totalConfigured = Object.values(dimensionRules).reduce(
     (sum, columns) => sum + columns.length,
@@ -506,12 +573,21 @@ export default function QualityConfiguration({
   );
 
   const isReadyType = (dimensionKey: string): boolean => {
-    return ['completeness', 'uniqueness'].includes(dimensionKey);
+    // uniqueness is always "ready" (single mode needs no config); completeness is handled per-column
+    return dimensionKey === 'uniqueness';
   };
 
   // True if every column in every dimension that requires configuration has been configured
   const allRequiredConfigured = Object.entries(dimensionRules).every(([dimKey, cols]) => {
     if (isReadyType(dimKey)) return true;
+    if (dimKey === 'completeness') {
+      // Only conditional-mode completeness columns require config
+      return cols.every(col => {
+        const cfg = columnConfigs.get(`completeness:${col}`);
+        if (!cfg || cfg.checkMode !== 'conditional') return true; // default mode = always ready
+        return configuredColumns.get('completeness')?.has(col) ?? false;
+      });
+    }
     return cols.every(col => configuredColumns.get(dimKey)?.has(col));
   });
 
@@ -550,11 +626,14 @@ export default function QualityConfiguration({
             className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition font-medium cursor-pointer outline-none"
           >
             <option value="">Select Template</option>
-            {templates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
+            {templates.map((template) => {
+              const missing = getTemplateMissingColumns(template);
+              return (
+                <option key={template.id} value={template.id} disabled={missing.length > 0}>
+                  {missing.length > 0 ? `⚠ ${template.name} (incompatible)` : template.name}
+                </option>
+              );
+            })}
           </select>
           <button
             onClick={handleClear}
@@ -653,7 +732,15 @@ export default function QualityConfiguration({
           dimension={configModal.dimension}
           dimensionName={configModal.dimensionName}
           column={configModal.column}
-          allColumns={data.headers}
+          allColumns={data.headers.filter(h => {
+            // For the uniqueness modal, exclude companion columns already used by OTHER uniqueness configs
+            if (configModal.dimension !== 'uniqueness') return true;
+            if (!referencedColumnsInUse.has(h)) return true;
+            // Allow if this column is already a companion of the current column being configured
+            const currentCfg = columnConfigs.get(`uniqueness:${configModal.column}`);
+            const currentCompanions = (currentCfg?.companionColumns as string[]) ?? [];
+            return currentCompanions.includes(h);
+          })}
           onSave={handleSaveConfiguration}
         />
       )}

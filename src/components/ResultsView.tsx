@@ -13,13 +13,15 @@ interface ResultsViewProps {
   datasetName?: string;
   publishedBy?: string;
   initialResults?: QualityCheckResult[] | null;
+  /** All columns that were selected for quality checks — used for dataset trimming on publish */
+  selectedColumns?: string[];
   onBack: () => void;
   onPublished?: () => void;
   /** When true, hides the Publish button (used when viewing a saved snapshot) */
   readOnly?: boolean;
 }
 
-export default function ResultsView({ datasetId, datasetName, publishedBy, initialResults, onBack, onPublished, readOnly = false }: ResultsViewProps) {
+export default function ResultsView({ datasetId, datasetName, publishedBy, initialResults, selectedColumns, onBack, onPublished, readOnly = false }: ResultsViewProps) {
   const [results, setResults] = useState<ResultWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'all' | 'pass' | 'fail'>('all');
@@ -28,6 +30,7 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
   // Publish modal
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishLabel, setPublishLabel] = useState('');
+  const [trimDataset, setTrimDataset] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedToast, setPublishedToast] = useState(false);
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
@@ -105,6 +108,11 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
     const label = publishLabel.trim() || `Run ${new Date().toLocaleString('en-GB')}`;
     setIsPublishing(true);
     try {
+      // Optionally trim dataset to selected columns
+      if (trimDataset && selectedColumns && selectedColumns.length > 0) {
+        await apiClient.trimDatasetColumns(datasetId, selectedColumns);
+      }
+
       await apiClient.publishQualitySnapshot(
         datasetId,
         label,
@@ -119,10 +127,12 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
           total_count: r.total_count,
           score: r.score,
           executed_at: r.executed_at,
+          rowDetails: r.rowDetails ?? [],
         })),
       );
       setShowPublishModal(false);
       setPublishLabel('');
+      setTrimDataset(false);
       setPublishedToast(true);
       setTimeout(() => setPublishedToast(false), 3500);
       onPublished?.();
@@ -219,7 +229,35 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
                 <span className="font-bold text-slate-700">{overallScore.toFixed(1)}%</span>
                 <span className="mx-1">·</span>
                 <span>{results.length} check{results.length !== 1 ? 's' : ''}</span>
+                {selectedColumns && selectedColumns.length > 0 && (
+                  <>
+                    <span className="mx-1">·</span>
+                    <span>{selectedColumns.length} column{selectedColumns.length !== 1 ? 's' : ''} checked</span>
+                  </>
+                )}
               </div>
+
+              {/* Trim dataset option */}
+              {selectedColumns && selectedColumns.length > 0 && (
+                <label className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition">
+                  <input
+                    type="checkbox"
+                    checked={trimDataset}
+                    onChange={e => setTrimDataset(e.target.checked)}
+                    className="mt-0.5 accent-teal-600 flex-shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">
+                      Trim dataset to selected columns only
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Removes unselected columns from the stored dataset permanently.
+                      Only the {selectedColumns.length} column{selectedColumns.length !== 1 ? 's' : ''} used in this quality check will be kept.
+                      <span className="text-amber-600 font-medium"> This cannot be undone.</span>
+                    </p>
+                  </div>
+                </label>
+              )}
             </div>
             <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200">
               <button

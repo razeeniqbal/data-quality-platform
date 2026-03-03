@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Crown, Edit, Eye, Users, Trash2, X, FileText, FolderOpen, ImageIcon, Lock, Globe, Star } from 'lucide-react';
+import { Search, Crown, Edit, Eye, Users, Trash2, X, FolderOpen, ImageIcon, Lock, Globe, Star } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 import type { ProjectWithRole, ProjectUserRole } from '../types/database';
 import { useUser } from '../contexts/UserContext';
@@ -60,12 +60,13 @@ export default function Dashboard({ onNavigateToRecords }: DashboardProps) {
 
   useEffect(() => {
     if (user) loadProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   async function loadProjects() {
     if (!user) return;
     try {
-      const projects = await apiClient.getProjects(user.displayName, user.role === 'admin') as ProjectWithRole[];
+      const projects = await apiClient.getProjects(user.displayName, user.role === 'admin') as unknown as ProjectWithRole[];
       const owned = projects.filter(p => p.userRole === 'owner' || p.userRole === 'co-owner');
       const shared = projects.filter(p => p.userRole === 'editor' || p.userRole === 'viewer');
       setMyProjects(owned);

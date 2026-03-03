@@ -155,7 +155,16 @@ export default function QualityDimensionCard({
             // Build config summary tags
             const summaryTags: string[] = [];
             if (colConfig) {
-              if (dimension === 'uniqueness') {
+              if (dimension === 'completeness') {
+                if (colConfig.checkMode === 'conditional' && colConfig.conditionColumn) {
+                  const vals = (colConfig.conditionValues as string || '').split(',').map(s => s.trim()).filter(Boolean);
+                  summaryTags.push(`if ${colConfig.conditionColumn}`);
+                  if (vals.length <= 2) summaryTags.push(`IN [${vals.join(', ')}]`);
+                  else summaryTags.push(`IN [${vals.slice(0, 2).join(', ')} +${vals.length - 2}]`);
+                } else {
+                  summaryTags.push('Always required');
+                }
+              } else if (dimension === 'uniqueness') {
                 const isMulti = colConfig.checkMode === 'multi';
                 if (isMulti) {
                   const companions = (colConfig.companionColumns as string[] || []);
@@ -166,31 +175,64 @@ export default function QualityDimensionCard({
               } else if (dimension === 'validity') {
                 const vt = colConfig.validationType as string || 'pattern';
                 const labels: Record<string, string> = {
-                  pattern: 'Pattern',
-                  range: 'Range',
-                  list: 'Allowed values',
-                  datatype: 'Data type',
-                  sign: 'Sign',
+                  sign:             'Sign',
+                  range:            'Range',
+                  list:             'Allowed values',
+                  pattern:          'Pattern',
+                  datatype:         'Data type',
+                  vali_val_pos:     'Positive only',
+                  vali_val_neg:     'Negative only',
+                  vali_val_rang:    'Range',
+                  vali_high_val:    '> Threshold',
+                  vali_low_val:     '< Threshold',
+                  vali_high_col:    '> Column',
+                  vali_low_col:     '< Column',
+                  vali_list_str:    'Allowed values',
+                  vali_if_str_rang: 'Cond. range',
+                  vali_if_col_rang: 'Cond. col. range',
                 };
                 summaryTags.push(labels[vt] ?? vt);
                 if (vt === 'pattern' && colConfig.pattern) summaryTags.push(String(colConfig.pattern));
-                if (vt === 'range') {
+                if ((vt === 'range' || vt === 'vali_val_rang') ) {
                   if (colConfig.minValue !== undefined && colConfig.minValue !== '') summaryTags.push(`min: ${colConfig.minValue}`);
                   if (colConfig.maxValue !== undefined && colConfig.maxValue !== '') summaryTags.push(`max: ${colConfig.maxValue}`);
                 }
                 if (vt === 'datatype' && colConfig.dataType) summaryTags.push(String(colConfig.dataType));
                 if (vt === 'sign' && colConfig.expectedSign) summaryTags.push(String(colConfig.expectedSign));
-                if (vt === 'list' && colConfig.allowedValues) {
+                if ((vt === 'list' || vt === 'vali_list_str') && colConfig.allowedValues) {
                   const vals = String(colConfig.allowedValues).split(',').map(s => s.trim()).filter(Boolean);
                   if (vals.length <= 3) summaryTags.push(vals.join(', '));
                   else summaryTags.push(`${vals.slice(0, 2).join(', ')} +${vals.length - 2}`);
                 }
+                if ((vt === 'vali_high_val' || vt === 'vali_low_val') && colConfig.threshold !== undefined && colConfig.threshold !== '') {
+                  summaryTags.push(String(colConfig.threshold));
+                }
+                if ((vt === 'vali_high_col' || vt === 'vali_low_col') && colConfig.compareToColumn) {
+                  summaryTags.push(String(colConfig.compareToColumn));
+                }
+                if (vt === 'vali_if_str_rang') {
+                  if (colConfig.conditionColumn) summaryTags.push(`if ${colConfig.conditionColumn}`);
+                  if (colConfig.minValue !== undefined && colConfig.minValue !== '') summaryTags.push(`min: ${colConfig.minValue}`);
+                  if (colConfig.maxValue !== undefined && colConfig.maxValue !== '') summaryTags.push(`max: ${colConfig.maxValue}`);
+                }
+                if (vt === 'vali_if_col_rang') {
+                  if (colConfig.conditionColumn) summaryTags.push(`if ${colConfig.conditionColumn}`);
+                  if (colConfig.minColumn) summaryTags.push(`min: ${colConfig.minColumn}`);
+                  if (colConfig.maxColumn) summaryTags.push(`max: ${colConfig.maxColumn}`);
+                }
               } else if (dimension === 'consistency') {
                 const src = colConfig.referenceSource as string || 'csv';
-                summaryTags.push(src === 'csv' ? 'CSV ref' : 'DB ref');
-                if (src === 'csv' && colConfig.referenceFileName) summaryTags.push(String(colConfig.referenceFileName));
-                if (colConfig.referenceMatchColumn) summaryTags.push(`→ ${colConfig.referenceMatchColumn}`);
-                if (src === 'database' && colConfig.referenceDbColumn) summaryTags.push(`→ ${colConfig.referenceDbColumn}`);
+                if (src === 'list') {
+                  summaryTags.push('Inline list');
+                  const vals = (colConfig.inlineValues as string || '').split(',').map(s => s.trim()).filter(Boolean);
+                  if (vals.length > 0 && vals.length <= 3) summaryTags.push(vals.join(', '));
+                  else if (vals.length > 3) summaryTags.push(`${vals.slice(0, 2).join(', ')} +${vals.length - 2}`);
+                } else {
+                  summaryTags.push(src === 'csv' ? 'CSV ref' : 'DB ref');
+                  if (src === 'csv' && colConfig.referenceFileName) summaryTags.push(String(colConfig.referenceFileName));
+                  if (colConfig.referenceMatchColumn) summaryTags.push(`→ ${colConfig.referenceMatchColumn}`);
+                  if (src === 'database' && colConfig.referenceDbColumn) summaryTags.push(`→ ${colConfig.referenceDbColumn}`);
+                }
               } else if (dimension === 'accuracy') {
                 const method = colConfig.accuracyMethod as string || 'reference';
                 summaryTags.push(method === 'reference' ? 'vs CSV' : method === 'calculation' ? 'Calculation' : 'Threshold');

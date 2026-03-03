@@ -28,9 +28,11 @@ interface ScoreProps {
   onDatasetCreated?: (datasetId: string) => void;
   /** viewer role — can only see snapshots, not run checks */
   isViewer?: boolean;
+  /** pre-select this dataset when the tab loads (e.g. synced from Records tab) */
+  initialDatasetId?: string | null;
 }
 
-export default function Score({ projectId, onDatasetCreated, isViewer = false }: ScoreProps) {
+export default function Score({ projectId, onDatasetCreated, isViewer = false, initialDatasetId }: ScoreProps) {
   const { user } = useUser();
   const [currentStep, setCurrentStep] = useState<ScoreStep>('upload');
   const [uploadedData, setUploadedData] = useState<UploadedData | null>(null);
@@ -61,6 +63,7 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false }:
       setUploadedData(null);
       setDatasetId(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   // When selected dataset changes, load its data
@@ -100,7 +103,9 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false }:
       const ds = await apiClient.getProjectDatasets(projId) as Dataset[];
       setDatasets(ds || []);
       if (ds && ds.length > 0) {
-        setSelectedDatasetId(ds[0].id);
+        // Prefer the dataset that was selected in the Records tab, fall back to first
+        const preferred = initialDatasetId && ds.find(d => d.id === initialDatasetId);
+        setSelectedDatasetId(preferred ? preferred.id : ds[0].id);
         if (isViewer) setLoading(false);
       } else {
         setLoading(false);
@@ -368,6 +373,19 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false }:
               datasetName={selectedDataset?.name}
               publishedBy={user?.displayName}
               initialResults={executionResults}
+              selectedColumns={executionResults
+                ? (() => {
+                    const cols = new Set<string>();
+                    executionResults.forEach(r => {
+                      cols.add(r.column_name);
+                      // Multi-column uniqueness: id is "uniqueness-colA+colB+colC" — extract all cols
+                      if (r.dimension === 'uniqueness' && r.id.startsWith('uniqueness-') && r.id.includes('+')) {
+                        r.id.replace('uniqueness-', '').split('+').forEach(c => cols.add(c));
+                      }
+                    });
+                    return [...cols];
+                  })()
+                : undefined}
               onBack={() => setCurrentStep('configure')}
               onPublished={() => loadSnapshots(datasetId)}
             />

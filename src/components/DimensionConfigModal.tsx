@@ -43,6 +43,12 @@ export default function DimensionConfigModal({
   if (!isOpen) return null;
 
   function isSaveValid(): boolean {
+    if (dimension === 'completeness') {
+      if (config.checkMode === 'conditional') {
+        return !!(config.conditionColumn && (config.conditionValues as string || '').trim());
+      }
+      return true;
+    }
     if (dimension === 'uniqueness') {
       if (config.checkMode === 'multi') {
         const companionCols = (config.companionColumns as string[]) || [];
@@ -52,11 +58,39 @@ export default function DimensionConfigModal({
     }
     if (dimension === 'consistency') {
       const source = config.referenceSource as string || 'csv';
+      if (source === 'list') {
+        return !!(config.inlineValues as string || '').trim();
+      }
       if (source === 'csv') {
         return !!(referenceFile && config.referenceMatchColumn);
       }
       if (source === 'database') {
         return !!(config.referenceDataset && config.referenceDbColumn);
+      }
+    }
+    if (dimension === 'validity') {
+      const vType = config.validationType as string || 'pattern';
+      if (vType === 'vali_if_str_rang') {
+        return !!(
+          config.conditionColumn &&
+          (config.conditionValues as string || '').trim() &&
+          (config.minValue !== undefined && config.minValue !== '') &&
+          (config.maxValue !== undefined && config.maxValue !== '')
+        );
+      }
+      if (vType === 'vali_if_col_rang') {
+        return !!(
+          config.conditionColumn &&
+          (config.conditionValues as string || '').trim() &&
+          config.minColumn &&
+          config.maxColumn
+        );
+      }
+      if (vType === 'vali_high_col' || vType === 'vali_low_col') {
+        return !!config.compareToColumn;
+      }
+      if (vType === 'vali_high_val' || vType === 'vali_low_val') {
+        return config.threshold !== undefined && config.threshold !== '';
       }
     }
     return true;
@@ -101,6 +135,83 @@ export default function DimensionConfigModal({
 
   function renderConfigFields() {
     switch (dimension) {
+      case 'completeness': {
+        const isConditional = config.checkMode === 'conditional';
+        const conditionValues = (config.conditionValues as string) || '';
+
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Check Mode</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, checkMode: 'default' })}
+                  className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition text-left ${
+                    !isConditional
+                      ? 'border-teal-500 bg-teal-50 text-teal-800'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-semibold mb-0.5">Default</div>
+                  <div className="text-xs font-normal opacity-70">Value must always be present</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, checkMode: 'conditional' })}
+                  className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition text-left ${
+                    isConditional
+                      ? 'border-teal-500 bg-teal-50 text-teal-800'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-semibold mb-0.5">Conditional</div>
+                  <div className="text-xs font-normal opacity-70">Required only when another column matches</div>
+                </button>
+              </div>
+            </div>
+
+            {isConditional && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Condition Column <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={config.conditionColumn as string || ''}
+                    onChange={e => setConfig({ ...config, conditionColumn: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  >
+                    <option value="">Select column to check</option>
+                    {allColumns.filter(c => c !== column).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    This column's value is checked to decide if "{column}" is required
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Trigger Values (comma-separated) <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={conditionValues}
+                    onChange={e => setConfig({ ...config, conditionValues: e.target.value })}
+                    placeholder='e.g., Success, Failed'
+                    rows={2}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    "{column}" must be present when the condition column contains any of these values
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
+
       case 'uniqueness': {
         const isMulti = config.checkMode === 'multi';
         const companionCols = (config.companionColumns as string[]) || [];
@@ -177,7 +288,8 @@ export default function DimensionConfigModal({
         );
       }
 
-      case 'validity':
+      case 'validity': {
+        const vType = config.validationType as string || 'pattern';
         return (
           <div className="space-y-4">
             <div>
@@ -185,81 +297,248 @@ export default function DimensionConfigModal({
                 Validation Type
               </label>
               <select
-                value={config.validationType || 'pattern'}
-                onChange={(e) =>
-                  setConfig({ ...config, validationType: e.target.value })
-                }
+                value={vType}
+                onChange={(e) => setConfig({ ...config, validationType: e.target.value })}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
               >
-                <option value="pattern">Pattern (Regex)</option>
-                <option value="range">Range</option>
-                <option value="list">Allowed Values List</option>
-                <option value="datatype">Data Type</option>
-                <option value="sign">Sign (Positive / Negative)</option>
+                <optgroup label="Numeric">
+                  <option value="sign">Sign (Positive / Negative)</option>
+                  <option value="range">Range (min ≤ value ≤ max)</option>
+                  <option value="vali_val_pos">Positive Only (&gt; 0)</option>
+                  <option value="vali_val_neg">Negative Only (&lt; 0)</option>
+                  <option value="vali_high_val">Greater Than Threshold (&gt; value)</option>
+                  <option value="vali_low_val">Less Than Threshold (&lt; value)</option>
+                  <option value="vali_high_col">Greater Than Another Column</option>
+                  <option value="vali_low_col">Less Than Another Column</option>
+                  <option value="vali_if_str_rang">Conditional Range (if column IN list)</option>
+                  <option value="vali_if_col_rang">Conditional Column Range (if column IN list, bounds from columns)</option>
+                </optgroup>
+                <optgroup label="String / General">
+                  <option value="list">Allowed Values List</option>
+                  <option value="pattern">Pattern (Regex)</option>
+                  <option value="datatype">Data Type</option>
+                </optgroup>
               </select>
             </div>
 
-            {config.validationType === 'pattern' && (
+            {/* Sign */}
+            {vType === 'sign' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Expected Sign</label>
+                <select
+                  value={config.expectedSign as string || 'positive'}
+                  onChange={(e) => setConfig({ ...config, expectedSign: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                >
+                  <option value="positive">All Positive (≥ 0)</option>
+                  <option value="negative">All Negative (&lt; 0)</option>
+                </select>
+                <p className="text-xs text-slate-500 mt-1">Non-numeric values will be marked as failed.</p>
+              </div>
+            )}
+
+            {/* Range */}
+            {vType === 'range' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Min Value</label>
+                  <input
+                    type="number"
+                    value={config.minValue as string || ''}
+                    onChange={(e) => setConfig({ ...config, minValue: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Max Value</label>
+                  <input
+                    type="number"
+                    value={config.maxValue as string || ''}
+                    onChange={(e) => setConfig({ ...config, maxValue: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* vali_high_val / vali_low_val — threshold */}
+            {(vType === 'vali_high_val' || vType === 'vali_low_val') && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Regex Pattern
+                  Threshold Value <span className="text-red-500">*</span>
                 </label>
                 <input
-                  type="text"
-                  value={config.pattern || ''}
-                  onChange={(e) =>
-                    setConfig({ ...config, pattern: e.target.value })
-                  }
-                  placeholder="e.g., ^[A-Z]{2}[0-9]{4}$"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none font-mono text-sm"
+                  type="number"
+                  value={config.threshold as string ?? ''}
+                  onChange={(e) => setConfig({ ...config, threshold: e.target.value })}
+                  placeholder="e.g., 1000"
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Enter a regular expression pattern to validate values
+                  {vType === 'vali_high_val'
+                    ? 'Value must be greater than this threshold'
+                    : 'Value must be less than this threshold'}
                 </p>
               </div>
             )}
 
-            {config.validationType === 'range' && (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Min Value
-                  </label>
-                  <input
-                    type="number"
-                    value={config.minValue || ''}
-                    onChange={(e) =>
-                      setConfig({ ...config, minValue: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Max Value
-                  </label>
-                  <input
-                    type="number"
-                    value={config.maxValue || ''}
-                    onChange={(e) =>
-                      setConfig({ ...config, maxValue: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                  />
-                </div>
+            {/* vali_high_col / vali_low_col — compare to column */}
+            {(vType === 'vali_high_col' || vType === 'vali_low_col') && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Compare To Column <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={config.compareToColumn as string || ''}
+                  onChange={(e) => setConfig({ ...config, compareToColumn: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                >
+                  <option value="">Select column</option>
+                  {allColumns.filter(c => c !== column).map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  {vType === 'vali_high_col'
+                    ? `"${column}" must be greater than the selected column`
+                    : `"${column}" must be less than the selected column`}
+                </p>
               </div>
             )}
 
-            {config.validationType === 'list' && (
+            {/* vali_if_str_rang — conditional range */}
+            {vType === 'vali_if_str_rang' && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Min Value <span className="text-red-500">*</span></label>
+                    <input
+                      type="number"
+                      value={config.minValue as string || ''}
+                      onChange={(e) => setConfig({ ...config, minValue: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Max Value <span className="text-red-500">*</span></label>
+                    <input
+                      type="number"
+                      value={config.maxValue as string || ''}
+                      onChange={(e) => setConfig({ ...config, maxValue: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Condition Column <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={config.conditionColumn as string || ''}
+                    onChange={(e) => setConfig({ ...config, conditionColumn: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  >
+                    <option value="">Select column</option>
+                    {allColumns.filter(c => c !== column).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Trigger Values (comma-separated) <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={config.conditionValues as string || ''}
+                    onChange={(e) => setConfig({ ...config, conditionValues: e.target.value })}
+                    placeholder='e.g., PERCENTAGE, TOTAL MARK'
+                    rows={2}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Range check only applies when the condition column contains one of these values
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* vali_if_col_rang — conditional column-based range */}
+            {vType === 'vali_if_col_rang' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Condition Column <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={config.conditionColumn as string || ''}
+                    onChange={(e) => setConfig({ ...config, conditionColumn: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  >
+                    <option value="">Select column</option>
+                    {allColumns.filter(c => c !== column).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Trigger Values (comma-separated) <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={config.conditionValues as string || ''}
+                    onChange={(e) => setConfig({ ...config, conditionValues: e.target.value })}
+                    placeholder='e.g., PERCENTAGE, TOTAL MARK'
+                    rows={2}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Range check only applies when the condition column contains one of these values
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Min Column <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={config.minColumn as string || ''}
+                      onChange={(e) => setConfig({ ...config, minColumn: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                    >
+                      <option value="">Select column</option>
+                      {allColumns.filter(c => c !== column).map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">Column whose value is the lower bound</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Max Column <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={config.maxColumn as string || ''}
+                      onChange={(e) => setConfig({ ...config, maxColumn: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                    >
+                      <option value="">Select column</option>
+                      {allColumns.filter(c => c !== column).map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">Column whose value is the upper bound</p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* List */}
+            {vType === 'list' && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Allowed Values (comma-separated)
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Allowed Values (comma-separated)</label>
                 <textarea
-                  value={config.allowedValues || ''}
-                  onChange={(e) =>
-                    setConfig({ ...config, allowedValues: e.target.value })
-                  }
+                  value={config.allowedValues as string || ''}
+                  onChange={(e) => setConfig({ ...config, allowedValues: e.target.value })}
                   placeholder="e.g., Active, Inactive, Pending"
                   rows={3}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
@@ -267,16 +546,28 @@ export default function DimensionConfigModal({
               </div>
             )}
 
-            {config.validationType === 'datatype' && (
+            {/* Pattern */}
+            {vType === 'pattern' && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Expected Data Type
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Regex Pattern</label>
+                <input
+                  type="text"
+                  value={config.pattern as string || ''}
+                  onChange={(e) => setConfig({ ...config, pattern: e.target.value })}
+                  placeholder="e.g., ^[A-Z]{2}[0-9]{4}$"
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none font-mono text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1">Enter a regular expression pattern to validate values</p>
+              </div>
+            )}
+
+            {/* Data type */}
+            {vType === 'datatype' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Expected Data Type</label>
                 <select
-                  value={config.dataType || 'string'}
-                  onChange={(e) =>
-                    setConfig({ ...config, dataType: e.target.value })
-                  }
+                  value={config.dataType as string || 'string'}
+                  onChange={(e) => setConfig({ ...config, dataType: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
                 >
                   <option value="string">String</option>
@@ -287,29 +578,9 @@ export default function DimensionConfigModal({
                 </select>
               </div>
             )}
-
-            {config.validationType === 'sign' && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Expected Sign
-                </label>
-                <select
-                  value={config.expectedSign || 'positive'}
-                  onChange={(e) =>
-                    setConfig({ ...config, expectedSign: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
-                >
-                  <option value="positive">All Positive (&ge; 0)</option>
-                  <option value="negative">All Negative (&lt; 0)</option>
-                </select>
-                <p className="text-xs text-slate-500 mt-1">
-                  All numeric values in this column must match the selected sign. Non-numeric values will be marked as failed.
-                </p>
-              </div>
-            )}
           </div>
         );
+      }
 
       case 'consistency':
         return (
@@ -326,12 +597,31 @@ export default function DimensionConfigModal({
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
               >
                 <option value="csv">Upload CSV File</option>
+                <option value="list">Inline List of Values</option>
                 <option value="database">Database (Existing Dataset)</option>
               </select>
               <p className="text-xs text-slate-500 mt-1">
                 Values in this column will be checked against the reference data. Any value not found in the reference will fail.
               </p>
             </div>
+
+            {config.referenceSource === 'list' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Allowed Values (comma-separated) <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={config.inlineValues as string || ''}
+                  onChange={(e) => setConfig({ ...config, inlineValues: e.target.value })}
+                  placeholder="e.g., Active, Inactive, Pending"
+                  rows={3}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Column values must exactly match one of these entries (case-insensitive)
+                </p>
+              </div>
+            )}
 
             {config.referenceSource === 'csv' && (
               <div>
@@ -389,7 +679,7 @@ export default function DimensionConfigModal({
                       Match Column (from reference file)
                     </label>
                     <select
-                      value={config.referenceMatchColumn || ''}
+                      value={config.referenceMatchColumn as string || ''}
                       onChange={(e) =>
                         setConfig({ ...config, referenceMatchColumn: e.target.value })
                       }
@@ -418,7 +708,7 @@ export default function DimensionConfigModal({
                   </label>
                   <input
                     type="text"
-                    value={config.referenceDatasetId || ''}
+                    value={config.referenceDatasetId as string || ''}
                     onChange={(e) =>
                       setConfig({ ...config, referenceDatasetId: e.target.value })
                     }
@@ -435,7 +725,7 @@ export default function DimensionConfigModal({
                   </label>
                   <input
                     type="text"
-                    value={config.referenceDbColumn || ''}
+                    value={config.referenceDbColumn as string || ''}
                     onChange={(e) =>
                       setConfig({ ...config, referenceDbColumn: e.target.value })
                     }
@@ -459,7 +749,7 @@ export default function DimensionConfigModal({
                 Accuracy Check Method
               </label>
               <select
-                value={config.accuracyMethod || 'reference'}
+                value={config.accuracyMethod as string || 'reference'}
                 onChange={(e) =>
                   setConfig({ ...config, accuracyMethod: e.target.value })
                 }
@@ -527,7 +817,7 @@ export default function DimensionConfigModal({
                       Match Column (from reference file)
                     </label>
                     <select
-                      value={config.referenceMatchColumn || ''}
+                      value={config.referenceMatchColumn as string || ''}
                       onChange={(e) =>
                         setConfig({ ...config, referenceMatchColumn: e.target.value })
                       }
@@ -553,7 +843,7 @@ export default function DimensionConfigModal({
                 type="number"
                 min="0"
                 max="100"
-                value={config.threshold || '95'}
+                value={config.threshold as string || '95'}
                 onChange={(e) =>
                   setConfig({ ...config, threshold: e.target.value })
                 }
@@ -576,7 +866,7 @@ export default function DimensionConfigModal({
               <input
                 type="number"
                 min="0"
-                value={config.maxAgeDays || '30'}
+                value={config.maxAgeDays as string || '30'}
                 onChange={(e) =>
                   setConfig({ ...config, maxAgeDays: e.target.value })
                 }
@@ -592,7 +882,7 @@ export default function DimensionConfigModal({
                 Expected Update Frequency
               </label>
               <select
-                value={config.updateFrequency || 'daily'}
+                value={config.updateFrequency as string || 'daily'}
                 onChange={(e) =>
                   setConfig({ ...config, updateFrequency: e.target.value })
                 }
@@ -650,12 +940,33 @@ export default function DimensionConfigModal({
             {!isSaveValid() && (
               <p className="text-xs text-amber-600 flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                {dimension === 'uniqueness'
+                {dimension === 'completeness' && config.checkMode === 'conditional'
+                  ? !config.conditionColumn
+                    ? 'Select a condition column.'
+                    : 'Enter at least one trigger value.'
+                  : dimension === 'uniqueness'
                   ? 'Select at least one column to combine with.'
-                  : dimension === 'consistency' && (config.referenceSource as string || 'csv') === 'csv'
-                  ? !referenceFile
-                    ? 'Upload a reference CSV file to continue.'
-                    : 'Select a match column to continue.'
+                  : dimension === 'consistency'
+                  ? (config.referenceSource as string || 'csv') === 'list'
+                    ? 'Enter at least one allowed value.'
+                    : (config.referenceSource as string || 'csv') === 'csv'
+                    ? !referenceFile
+                      ? 'Upload a reference CSV file to continue.'
+                      : 'Select a match column to continue.'
+                    : 'Fill in all required fields to continue.'
+                  : dimension === 'validity'
+                  ? (() => {
+                      const vType = config.validationType as string || 'pattern';
+                      if (vType === 'vali_if_str_rang' || vType === 'vali_if_col_rang') {
+                        if (!config.conditionColumn) return 'Select a condition column.';
+                        if (!(config.conditionValues as string || '').trim()) return 'Enter at least one trigger value.';
+                        if (vType === 'vali_if_str_rang') return 'Enter min and max values.';
+                        return 'Select min and max columns.';
+                      }
+                      if (vType === 'vali_high_col' || vType === 'vali_low_col') return 'Select a column to compare against.';
+                      if (vType === 'vali_high_val' || vType === 'vali_low_val') return 'Enter a threshold value.';
+                      return 'Fill in all required fields to continue.';
+                    })()
                   : 'Fill in all required fields to continue.'}
               </p>
             )}

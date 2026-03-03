@@ -533,6 +533,30 @@ class ApiClient {
     return data;
   }
 
+  /** Rewrite file_data keeping only the specified columns, and updates column_count */
+  async trimDatasetColumns(datasetId: string, keepColumns: string[]) {
+    // Fetch full data
+    const { data: ds, error: fetchError } = await supabase
+      .from('datasets')
+      .select('file_data')
+      .eq('id', datasetId)
+      .single();
+    if (fetchError) throw new Error(fetchError.message);
+
+    const rows = (ds.file_data as Record<string, string>[]) || [];
+    const trimmed = rows.map(row => {
+      const out: Record<string, string> = {};
+      keepColumns.forEach(col => { if (col in row) out[col] = row[col]; });
+      return out;
+    });
+
+    const { error: updateError } = await supabase
+      .from('datasets')
+      .update({ file_data: trimmed, column_count: keepColumns.length })
+      .eq('id', datasetId);
+    if (updateError) throw new Error(updateError.message);
+  }
+
   // Quality Snapshots
   async publishQualitySnapshot(
     datasetId: string,
@@ -673,7 +697,7 @@ class ApiClient {
       logger.error('Failed to get user memberships', new Error(error.message), { displayName });
       throw new Error(error.message);
     }
-    return (data || []) as Array<{
+    return (data || []) as unknown as Array<{
       role: 'owner' | 'editor' | 'viewer';
       project_id: string;
       projects: { id: string; name: string } | null;

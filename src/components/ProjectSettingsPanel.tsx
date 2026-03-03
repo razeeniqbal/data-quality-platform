@@ -106,7 +106,7 @@ export default function ProjectSettingsPanel({
     if (!name) return;
     setIsSavingInfo(true);
     try {
-      await apiClient.updateProject(projectId, { name, description: editDescription.trim() || null });
+      await apiClient.updateProject(projectId, { name, description: editDescription.trim() || undefined });
       onProjectInfoSaved?.(name, editDescription.trim());
     } catch (err) {
       console.error('Failed to save project info:', err);

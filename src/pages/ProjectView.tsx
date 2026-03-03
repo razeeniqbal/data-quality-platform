@@ -642,6 +642,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
         <Score
           projectId={projectId}
           isViewer={currentUserRole === 'viewer'}
+          initialDatasetId={selectedDatasetId}
         />
       )}
 
