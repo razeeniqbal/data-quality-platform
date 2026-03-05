@@ -162,9 +162,14 @@ export default function Records({ datasetId, columnValueFilters, onDataLoaded }:
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-slate-100 border-b border-slate-200">
-                {columns.map((col) => (
-                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider whitespace-nowrap">
+              <tr className="bg-slate-100 border-b-2 border-slate-300">
+                {columns.map((col, i) => (
+                  <th
+                    key={col}
+                    className={`px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider whitespace-nowrap ${
+                      i < columns.length - 1 ? 'border-r border-slate-300' : ''
+                    }`}
+                  >
                     {col}
                   </th>
                 ))}
@@ -172,14 +177,18 @@ export default function Records({ datasetId, columnValueFilters, onDataLoaded }:
             </thead>
             <tbody className="divide-y divide-slate-200">
               {currentRecords.map((record, rowIndex) => (
-                <tr key={rowIndex} className="hover:bg-slate-50 transition">
-                  {columns.map((col) => (
+                <tr key={rowIndex} className="hover:bg-slate-50 transition-colors">
+                  {columns.map((col, i) => (
                     <td
                       key={col}
-                      className="px-4 py-3 text-sm text-slate-700 whitespace-nowrap max-w-[300px] truncate"
+                      className={`px-4 py-3 text-sm text-slate-700 whitespace-nowrap max-w-[300px] truncate cursor-default transition-colors hover:bg-teal-600 hover:text-white ${
+                        i < columns.length - 1 ? 'border-r border-slate-200' : ''
+                      }`}
                       title={String(record[col] ?? '')}
                     >
-                      {String(record[col] ?? '')}
+                      {String(record[col] ?? '').length === 0
+                        ? <span className="italic text-slate-300 text-xs">&lt;empty&gt;</span>
+                        : String(record[col])}
                     </td>
                   ))}
                 </tr>

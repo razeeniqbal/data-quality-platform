@@ -5,7 +5,7 @@ import { useUser } from '../contexts/UserContext';
 import Records from './Records';
 import Score from './Score';
 import ProjectSettingsPanel from '../components/ProjectSettingsPanel';
-import type { ProjectUserRole, QualitySnapshot } from '../types/database';
+import type { ProjectUserRole, QualityScore } from '../types/database';
 
 type ProjectTab = 'records' | 'score';
 
@@ -65,10 +65,10 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
   const [detailDescription, setDetailDescription] = useState('');
   const [isSavingDetail, setIsSavingDetail] = useState(false);
   const [detailEditMode, setDetailEditMode] = useState(false);
-  const [detailTab, setDetailTab] = useState<'info' | 'snapshots'>('info');
-  const [detailSnapshots, setDetailSnapshots] = useState<QualitySnapshot[]>([]);
-  const [detailSnapshotsLoading, setDetailSnapshotsLoading] = useState(false);
-  const [deletingDetailSnapshotId, setDeletingDetailSnapshotId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<'info' | 'scores'>('info');
+  const [detailScores, setDetailScores] = useState<QualityScore[]>([]);
+  const [detailScoresLoading, setDetailScoresLoading] = useState(false);
+  const [deletingDetailScoreId, setDeletingDetailScoreId] = useState<string | null>(null);
 
   // (inline rename removed — now handled via detail modal)
 
@@ -226,8 +226,8 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
     setDetailName(ds.name);
     setDetailDescription(ds.description ?? '');
     setDetailTab('info');
-    setDetailSnapshots([]);
-    loadDetailSnapshots(ds.id);
+    setDetailScores([]);
+    loadDetailScores(ds.id);
   }
 
   function closeDetail() {
@@ -236,29 +236,29 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
     setDetailTab('info');
   }
 
-  async function loadDetailSnapshots(dsId: string) {
-    setDetailSnapshotsLoading(true);
+  async function loadDetailScores(dsId: string) {
+    setDetailScoresLoading(true);
     try {
-      const data = await apiClient.getQualitySnapshots(dsId) as QualitySnapshot[];
-      setDetailSnapshots(data || []);
+      const data = await apiClient.getQualityScores(dsId) as QualityScore[];
+      setDetailScores(data || []);
     } catch (err) {
-      console.error('Error loading snapshots:', err);
+      console.error('Error loading result scores:', err);
     } finally {
-      setDetailSnapshotsLoading(false);
+      setDetailScoresLoading(false);
     }
   }
 
-  async function handleDeleteDetailSnapshot(snapshotId: string) {
-    if (!window.confirm('Delete this snapshot? This cannot be undone.')) return;
-    setDeletingDetailSnapshotId(snapshotId);
+  async function handleDeleteDetailScore(scoreId: string) {
+    if (!window.confirm('Delete this result score? This cannot be undone.')) return;
+    setDeletingDetailScoreId(scoreId);
     try {
-      await apiClient.deleteQualitySnapshot(snapshotId);
-      setDetailSnapshots(prev => prev.filter(s => s.id !== snapshotId));
+      await apiClient.deleteQualityScore(scoreId);
+      setDetailScores(prev => prev.filter(s => s.id !== scoreId));
     } catch (err) {
-      console.error('Failed to delete snapshot:', err);
-      alert('Failed to delete snapshot. Please try again.');
+      console.error('Failed to delete result score:', err);
+      alert('Failed to delete result score. Please try again.');
     } finally {
-      setDeletingDetailSnapshotId(null);
+      setDeletingDetailScoreId(null);
     }
   }
 
@@ -688,18 +688,18 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                 Info
               </button>
               <button
-                onClick={() => setDetailTab('snapshots')}
+                onClick={() => setDetailTab('scores')}
                 className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition ${
-                  detailTab === 'snapshots'
+                  detailTab === 'scores'
                     ? 'border-teal-600 text-teal-700'
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
                 <BookMarked className="w-4 h-4" />
-                Snapshots
-                {detailSnapshots.length > 0 && (
+                Result Scores
+                {detailScores.length > 0 && (
                   <span className="ml-1 text-xs bg-teal-100 text-teal-700 font-semibold px-1.5 py-0.5 rounded-full">
-                    {detailSnapshots.length}
+                    {detailScores.length}
                   </span>
                 )}
               </button>
@@ -707,7 +707,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
 
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto">
-              {detailTab === 'info' ? (
+              {detailTab !== 'scores' ? (
                 <div className="p-6 space-y-4">
                   {/* Name */}
                   <div>
@@ -746,50 +746,50 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
                   </div>
                 </div>
               ) : (
-                /* Snapshots tab */
-                detailSnapshotsLoading ? (
+                /* Result Scores tab */
+                detailScoresLoading ? (
                   <div className="py-10 text-center text-slate-400 text-sm">
                     <div className="animate-spin w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full mx-auto mb-2" />
-                    Loading snapshots...
+                    Loading result scores...
                   </div>
-                ) : detailSnapshots.length === 0 ? (
+                ) : detailScores.length === 0 ? (
                   <div className="py-10 text-center text-slate-400">
                     <BookMarked className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm font-medium">No published snapshots yet</p>
-                    <p className="text-xs mt-1 text-slate-300">Run a quality check and click Publish.</p>
+                    <p className="text-sm font-medium">No result scores saved yet</p>
+                    <p className="text-xs mt-1 text-slate-300">Run a quality check and click Save Result Score.</p>
                   </div>
                 ) : (
                   <ul className="divide-y divide-slate-100">
-                    {detailSnapshots.map(snap => {
-                      const date = new Date(snap.published_at).toLocaleString('en-GB', {
+                    {detailScores.map(score => {
+                      const date = new Date(score.published_at).toLocaleString('en-GB', {
                         day: '2-digit', month: 'short', year: 'numeric',
                         hour: '2-digit', minute: '2-digit',
                       });
                       const scoreColor =
-                        snap.overall_score === 100 ? 'text-green-600' :
-                        snap.overall_score >= 75 ? 'text-yellow-600' :
-                        snap.overall_score >= 50 ? 'text-orange-600' :
+                        score.overall_score === 100 ? 'text-green-600' :
+                        score.overall_score >= 75 ? 'text-yellow-600' :
+                        score.overall_score >= 50 ? 'text-orange-600' :
                         'text-red-600';
                       return (
-                        <li key={snap.id} className="flex items-center gap-3 px-6 py-3.5 hover:bg-slate-50 transition group">
+                        <li key={score.id} className="flex items-center gap-3 px-6 py-3.5 hover:bg-slate-50 transition group">
                           <BarChart2 className="w-4 h-4 text-teal-400 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 truncate">{snap.label}</p>
+                            <p className="text-sm font-semibold text-slate-800 truncate">{score.label}</p>
                             <p className="text-xs text-slate-400 mt-0.5">
-                              {date}{snap.published_by ? ` · ${snap.published_by}` : ''}
+                              {date}{score.published_by ? ` · ${score.published_by}` : ''}
                             </p>
                           </div>
                           <span className={`text-base font-bold flex-shrink-0 ${scoreColor}`}>
-                            {snap.overall_score.toFixed(1)}%
+                            {score.overall_score.toFixed(1)}%
                           </span>
                           {(currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (
                             <button
-                              onClick={() => handleDeleteDetailSnapshot(snap.id)}
-                              disabled={deletingDetailSnapshotId === snap.id}
+                              onClick={() => handleDeleteDetailScore(score.id)}
+                              disabled={deletingDetailScoreId === score.id}
                               className="flex-shrink-0 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                              title="Delete snapshot"
+                              title="Delete result score"
                             >
-                              {deletingDetailSnapshotId === snap.id
+                              {deletingDetailScoreId === score.id
                                 ? <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
                                 : <Trash2 className="w-3.5 h-3.5" />
                               }
@@ -804,7 +804,7 @@ export default function ProjectView({ projectId, initialTab = 'records', onBack 
             </div>
 
             {/* Footer — only shown on info tab */}
-            {detailTab === 'info' && (
+            {detailTab !== 'scores' && (
               <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 flex-shrink-0">
                 <div>
                   {!detailEditMode && (currentUserRole === 'owner' || currentUserRole === 'co-owner' || currentUserRole === 'editor') && (

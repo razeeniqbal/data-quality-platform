@@ -547,11 +547,14 @@ export default function QualityConfiguration({
     }
   });
 
-  const availableColumns = data.headers.filter(
-    (header) =>
-      !Object.values(dimensionRules).some(columns => columns.includes(header)) &&
-      !referencedColumnsInUse.has(header)
-  );
+  // Each dimension gets its own available list:
+  // exclude columns already assigned to *that* dimension and referenced companion columns.
+  function getAvailableColumnsFor(dimensionKey: string): string[] {
+    const alreadyInThisDim = new Set(dimensionRules[dimensionKey] ?? []);
+    return data.headers.filter(
+      (header) => !alreadyInThisDim.has(header) && !referencedColumnsInUse.has(header)
+    );
+  }
 
   // Pre-compute which templates have columns that no longer exist in the dataset
   const datasetColumnSet = new Set(data.headers);
@@ -706,7 +709,7 @@ export default function QualityConfiguration({
             title={dimension.name}
             dimension={dimension.key as QualityDimension}
             columns={dimensionRules[dimension.key] || []}
-            availableColumns={availableColumns}
+            availableColumns={getAvailableColumnsFor(dimension.key)}
             onAddColumn={handleAddColumn}
             onRemoveColumn={handleRemoveColumn}
             onConfigure={handleConfigure}

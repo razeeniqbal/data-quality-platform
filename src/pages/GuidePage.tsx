@@ -2,20 +2,34 @@ import { useState } from 'react';
 import {
   BookOpen, CheckCircle2, XCircle, AlertCircle,
   Fingerprint, ShieldCheck, List, Info, ChevronRight, Lightbulb,
+  FileText, Tag,
 } from 'lucide-react';
 
 // ─── Mini-table types ──────────────────────────────────────────────────────────
 interface MiniRow {
-  cells: Record<string, string>;    // column → value (empty string = blank)
+  cells: Record<string, string>;
   status: 'pass' | 'fail';
-  reason?: string;                  // shown on hover when fail
+  reason?: string;
+}
+
+interface ListPreview {
+  type: 'inline' | 'csv';
+  // inline: list of allowed values
+  values?: string[];
+  // csv: filename + column name shown
+  filename?: string;
+  column?: string;
 }
 
 interface MiniTable {
-  columns: string[];                // ordered column keys
-  checkCol: string;                 // which column is under the lens
+  columns: string[];
+  checkCol: string;
+  // companion columns: shown with a distinct highlight (condition col, compare col, bound col, etc.)
+  companionCols?: string[];
   rows: MiniRow[];
-  note: string;                     // one-line explanation shown below the table
+  note: string;
+  // optional list/reference panel shown above the table
+  listPreview?: ListPreview;
 }
 
 // ─── Rule type ─────────────────────────────────────────────────────────────────
@@ -33,18 +47,23 @@ interface DimensionDef {
   id: string;
   label: string;
   icon: React.ReactNode;
-  accent: string;
   summary: string;
   detail: string;
   rules: RuleDef[];
 }
 
-// ─── Colour map ────────────────────────────────────────────────────────────────
-const ACCENT: Record<string, { lightBg: string; text: string; border: string; pill: string }> = {
-  teal:   { lightBg: 'bg-teal-50',   text: 'text-teal-700',   border: 'border-teal-300',   pill: 'bg-teal-100 text-teal-700'   },
-  violet: { lightBg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-300', pill: 'bg-violet-100 text-violet-700' },
-  blue:   { lightBg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-300',   pill: 'bg-blue-100 text-blue-700'   },
-  amber:  { lightBg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-300',  pill: 'bg-amber-100 text-amber-700'  },
+// ─── Single neutral palette (used everywhere) ──────────────────────────────────
+const C = {
+  lightBg:     'bg-slate-50',
+  text:        'text-slate-700',
+  border:      'border-slate-300',
+  pill:        'bg-slate-200 text-slate-700',
+  checkBg:     'bg-teal-50',
+  checkText:   'text-teal-700',
+  checkBadge:  'bg-teal-100 text-teal-700',
+  companionBg: 'bg-indigo-50',
+  companionTx: 'text-indigo-700',
+  companionBd: 'bg-indigo-100 text-indigo-700',
 };
 
 // ─── Dimension + rule definitions ─────────────────────────────────────────────
@@ -54,7 +73,6 @@ const DIMS: DimensionDef[] = [
     id: 'completeness',
     label: 'Completeness',
     icon: <CheckCircle2 className="w-5 h-5" />,
-    accent: 'teal',
     summary: 'Ensures mandatory fields are not left empty.',
     detail:
       'For each configured column the engine checks whether the cell value is present and non-blank. ' +
@@ -74,10 +92,10 @@ const DIMS: DimensionDef[] = [
           checkCol: 'Country',
           note: 'Country is set to Default. Any blank value fails unconditionally.',
           rows: [
-            { cells: { WellboreName: 'ALPHA-1A', Country: 'Malaysia', Phase: 'Exploration' }, status: 'pass' },
-            { cells: { WellboreName: 'BETA-3B',  Country: 'Malaysia', Phase: 'Development' }, status: 'pass' },
-            { cells: { WellboreName: 'GAMMA-7',  Country: '',         Phase: 'Exploration' }, status: 'fail', reason: 'Country is empty' },
-            { cells: { WellboreName: 'DELTA-2C', Country: 'Malaysia', Phase: 'Development' }, status: 'pass' },
+            { cells: { WellboreName: 'ALPHA-1A', Country: 'Malaysia',  Phase: 'Exploration' }, status: 'pass' },
+            { cells: { WellboreName: 'BETA-3B',  Country: 'Malaysia',  Phase: 'Development' }, status: 'pass' },
+            { cells: { WellboreName: 'GAMMA-7',  Country: '',          Phase: 'Exploration' }, status: 'fail', reason: 'Country is empty' },
+            { cells: { WellboreName: 'DELTA-2C', Country: 'Malaysia',  Phase: 'Development' }, status: 'pass' },
           ],
         },
       },
@@ -90,6 +108,7 @@ const DIMS: DimensionDef[] = [
         table: {
           columns: ['WellboreName', 'CurrentStatus', 'TotalDepthM'],
           checkCol: 'TotalDepthM',
+          companionCols: ['CurrentStatus'],
           note: 'TotalDepthM is required only when CurrentStatus = "Actual". GAMMA-7 is Planned → skipped (Pass).',
           rows: [
             { cells: { WellboreName: 'ALPHA-1A',  CurrentStatus: 'Actual',  TotalDepthM: '3420' }, status: 'pass' },
@@ -107,7 +126,6 @@ const DIMS: DimensionDef[] = [
     id: 'uniqueness',
     label: 'Uniqueness',
     icon: <Fingerprint className="w-5 h-5" />,
-    accent: 'violet',
     summary: 'Detects duplicate records across one or more columns.',
     detail:
       'Single-column mode tracks every seen value; any second occurrence fails. ' +
@@ -124,12 +142,12 @@ const DIMS: DimensionDef[] = [
         table: {
           columns: ['WellboreName', 'Phase', 'TotalDepthM'],
           checkCol: 'WellboreName',
-          note: '"ALPHA-1A" appears twice → both occurrences fail. Each value must be unique across all rows.',
+          note: '"ALPHA-1A" appears twice → both occurrences fail.',
           rows: [
-            { cells: { WellboreName: 'ALPHA-1A',  Phase: 'Exploration', TotalDepthM: '3420' }, status: 'fail', reason: '"ALPHA-1A" appears in row 1 and row 4 — duplicate' },
-            { cells: { WellboreName: 'BETA-3B',   Phase: 'Development', TotalDepthM: '4800' }, status: 'pass' },
-            { cells: { WellboreName: 'GAMMA-7',   Phase: 'Exploration', TotalDepthM: '2100' }, status: 'pass' },
-            { cells: { WellboreName: 'ALPHA-1A',  Phase: 'Exploration', TotalDepthM: '3420' }, status: 'fail', reason: '"ALPHA-1A" appears in row 1 and row 4 — duplicate' },
+            { cells: { WellboreName: 'ALPHA-1A', Phase: 'Exploration', TotalDepthM: '3420' }, status: 'fail', reason: '"ALPHA-1A" appears in row 1 and row 4 — duplicate' },
+            { cells: { WellboreName: 'BETA-3B',  Phase: 'Development', TotalDepthM: '4800' }, status: 'pass' },
+            { cells: { WellboreName: 'GAMMA-7',  Phase: 'Exploration', TotalDepthM: '2100' }, status: 'pass' },
+            { cells: { WellboreName: 'ALPHA-1A', Phase: 'Exploration', TotalDepthM: '3420' }, status: 'fail', reason: '"ALPHA-1A" appears in row 1 and row 4 — duplicate' },
           ],
         },
       },
@@ -142,7 +160,8 @@ const DIMS: DimensionDef[] = [
         table: {
           columns: ['WellboreName', 'Phase', 'TotalDepthM'],
           checkCol: 'WellboreName',
-          note: 'Checking WellboreName + Phase as composite key. Row 1 & 4 share "ALPHA-1A + Exploration" → fail. Row 2 & 3 differ by Phase → pass.',
+          companionCols: ['Phase'],
+          note: 'Composite key: WellboreName + Phase. Row 1 & 4 share "ALPHA-1A / Exploration" → fail.',
           rows: [
             { cells: { WellboreName: 'ALPHA-1A', Phase: 'Exploration', TotalDepthM: '3420' }, status: 'fail', reason: 'WellboreName + Phase "ALPHA-1A / Exploration" is duplicated in rows 1 and 4' },
             { cells: { WellboreName: 'ALPHA-1A', Phase: 'Development', TotalDepthM: '4100' }, status: 'pass' },
@@ -159,7 +178,6 @@ const DIMS: DimensionDef[] = [
     id: 'validity',
     label: 'Validity',
     icon: <ShieldCheck className="w-5 h-5" />,
-    accent: 'blue',
     summary: 'Validates values against numeric, pattern, and list-based rules.',
     detail:
       'The engine applies a configurable rule to each non-null value. ' +
@@ -191,7 +209,7 @@ const DIMS: DimensionDef[] = [
         tag: '[min, max]',
         description: 'Value must fall within a specified min–max range (inclusive). Outside → Fail.',
         configLabel: 'Type: Numeric range → Min → Max',
-        tip: 'e.g. WaterDepthM between 0 and 2000 to reject physically impossible offshore depths.',
+        tip: 'e.g. WaterDepthM between 0 and 500 to reject physically impossible offshore depths.',
         table: {
           columns: ['WellboreName', 'WaterDepthM'],
           checkCol: 'WaterDepthM',
@@ -208,12 +226,13 @@ const DIMS: DimensionDef[] = [
         name: 'Column bounds',
         tag: 'Row bounds',
         description: 'Min/max bounds are read from other columns in the same row — no hardcoded values needed.',
-        configLabel: 'Type: Conditional col. range → Condition column → Trigger values → Min column → Max column',
+        configLabel: 'Type: Conditional col. range → Min column → Max column',
         tip: 'e.g. TVDSSm must not exceed TotalDepthM. The max bound varies row by row.',
         table: {
           columns: ['WellboreName', 'TVDSSm', 'TotalDepthM'],
           checkCol: 'TVDSSm',
-          note: 'Rule: TVDSSm must be ≤ TotalDepthM (max column). BETA-3B has TVDSSm 4100 > TotalDepthM 3800 → fail.',
+          companionCols: ['TotalDepthM'],
+          note: 'Rule: TVDSSm ≤ TotalDepthM (max column). BETA-3B has TVDSSm 4100 > TotalDepthM 3800 → fail.',
           rows: [
             { cells: { WellboreName: 'ALPHA-1A', TVDSSm: '3310', TotalDepthM: '3420' }, status: 'pass' },
             { cells: { WellboreName: 'BETA-3B',  TVDSSm: '4100', TotalDepthM: '3800' }, status: 'fail', reason: 'TVDSSm (4100) exceeds TotalDepthM (3800) — TVDSS cannot exceed total depth' },
@@ -245,10 +264,11 @@ const DIMS: DimensionDef[] = [
         tag: 'Col A vs Col B',
         description: 'One column must be greater or less than another column in the same row.',
         configLabel: 'Type: Greater than column  /  Less than column → Compare-to column',
-        tip: 'e.g. TotalDepthM must be ≥ WaterDepthM — a well\'s total depth must always exceed water depth.',
+        tip: "e.g. TotalDepthM must be ≥ WaterDepthM — a well's total depth must always exceed water depth.",
         table: {
           columns: ['WellboreName', 'TotalDepthM', 'WaterDepthM'],
           checkCol: 'TotalDepthM',
+          companionCols: ['WaterDepthM'],
           note: 'Rule: TotalDepthM must be > WaterDepthM. BETA-3B has TotalDepthM 180 < WaterDepthM 210 → fail.',
           rows: [
             { cells: { WellboreName: 'ALPHA-1A',  TotalDepthM: '3420', WaterDepthM: '85'  }, status: 'pass' },
@@ -267,25 +287,30 @@ const DIMS: DimensionDef[] = [
         table: {
           columns: ['WellboreName', 'Phase'],
           checkCol: 'Phase',
-          note: 'Allowed list: Exploration, Development, Abandonment. GAMMA-7 has "Appraisal" (not in list) → fail.',
+          note: 'GAMMA-7 has "Appraisal" (not in the allowed list below) → fail.',
+          listPreview: {
+            type: 'inline',
+            values: ['Exploration', 'Development', 'Abandonment'],
+          },
           rows: [
-            { cells: { WellboreName: 'ALPHA-1A',  Phase: 'Exploration'  }, status: 'pass' },
-            { cells: { WellboreName: 'BETA-3B',   Phase: 'Development'  }, status: 'pass' },
-            { cells: { WellboreName: 'GAMMA-7',   Phase: 'Appraisal'    }, status: 'fail', reason: '"Appraisal" is not in the allowed list: Exploration, Development, Abandonment' },
-            { cells: { WellboreName: 'ZETA-9',    Phase: 'Abandonment'  }, status: 'pass' },
+            { cells: { WellboreName: 'ALPHA-1A', Phase: 'Exploration' }, status: 'pass' },
+            { cells: { WellboreName: 'BETA-3B',  Phase: 'Development' }, status: 'pass' },
+            { cells: { WellboreName: 'GAMMA-7',  Phase: 'Appraisal'   }, status: 'fail', reason: '"Appraisal" is not in the allowed list: Exploration, Development, Abandonment' },
+            { cells: { WellboreName: 'ZETA-9',   Phase: 'Abandonment' }, status: 'pass' },
           ],
         },
       },
       {
         name: 'Conditional range',
         tag: 'If → range',
-        description: 'A numeric range check that is applied only when another column matches a trigger value. Other rows are skipped.',
+        description: 'A numeric range check applied only when another column matches a trigger value. Other rows are skipped.',
         configLabel: 'Type: Conditional string range → Condition column → Trigger values → Min → Max',
         tip: 'e.g. TotalDepthM must be in [500, 8000] only when CurrentStatus = "Actual". Planned wells are not yet drilled — skip them.',
         table: {
           columns: ['WellboreName', 'CurrentStatus', 'TotalDepthM'],
           checkCol: 'TotalDepthM',
-          note: 'Rule: TotalDepthM in [500, 8000] only when CurrentStatus = "Actual". GAMMA-7 is Planned → skipped (Pass). BETA-3B is Actual with 120 → fail.',
+          companionCols: ['CurrentStatus'],
+          note: 'GAMMA-7 is Planned → skipped (Pass). BETA-3B is Actual with 120 → outside [500, 8000] → fail.',
           rows: [
             { cells: { WellboreName: 'ALPHA-1A',  CurrentStatus: 'Actual',  TotalDepthM: '3420' }, status: 'pass' },
             { cells: { WellboreName: 'BETA-3B',   CurrentStatus: 'Actual',  TotalDepthM: '120'  }, status: 'fail', reason: 'TotalDepthM = 120. Must be in [500, 8000] when CurrentStatus = "Actual"' },
@@ -305,10 +330,10 @@ const DIMS: DimensionDef[] = [
           checkCol: 'QCStatus',
           note: 'Pattern: /^(Approved|Pending|Rejected)$/. GAMMA-7 has "Under Review" — not in pattern → fail.',
           rows: [
-            { cells: { WellboreName: 'ALPHA-1A',  QCStatus: 'Approved'    }, status: 'pass' },
-            { cells: { WellboreName: 'BETA-3B',   QCStatus: 'Pending'     }, status: 'pass' },
-            { cells: { WellboreName: 'GAMMA-7',   QCStatus: 'Under Review' }, status: 'fail', reason: '"Under Review" does not match pattern /^(Approved|Pending|Rejected)$/' },
-            { cells: { WellboreName: 'DELTA-2C',  QCStatus: 'Approved'    }, status: 'pass' },
+            { cells: { WellboreName: 'ALPHA-1A', QCStatus: 'Approved'    }, status: 'pass' },
+            { cells: { WellboreName: 'BETA-3B',  QCStatus: 'Pending'     }, status: 'pass' },
+            { cells: { WellboreName: 'GAMMA-7',  QCStatus: 'Under Review' }, status: 'fail', reason: '"Under Review" does not match pattern /^(Approved|Pending|Rejected)$/' },
+            { cells: { WellboreName: 'DELTA-2C', QCStatus: 'Approved'    }, status: 'pass' },
           ],
         },
       },
@@ -320,7 +345,6 @@ const DIMS: DimensionDef[] = [
     id: 'consistency',
     label: 'Consistency',
     icon: <List className="w-5 h-5" />,
-    accent: 'amber',
     summary: 'Checks values against a controlled reference list.',
     detail:
       'The engine verifies each non-null value exists in an approved set. ' +
@@ -338,7 +362,11 @@ const DIMS: DimensionDef[] = [
         table: {
           columns: ['WellboreName', 'HydrocarbonType'],
           checkCol: 'HydrocarbonType',
-          note: 'Approved inline list: Oil, Gas, Condensate. EPSILON-4 has "LNG" (not in list) → fail. GAMMA-7 is empty → skipped.',
+          note: 'EPSILON-4 has "LNG" (not in the approved list below) → fail. GAMMA-7 is empty → skipped.',
+          listPreview: {
+            type: 'inline',
+            values: ['Oil', 'Gas', 'Condensate'],
+          },
           rows: [
             { cells: { WellboreName: 'ALPHA-1A',  HydrocarbonType: 'Gas'        }, status: 'pass' },
             { cells: { WellboreName: 'BETA-3B',   HydrocarbonType: 'Oil'        }, status: 'pass' },
@@ -353,16 +381,22 @@ const DIMS: DimensionDef[] = [
         tag: 'From dataset',
         description: 'Acceptable values are loaded from a column in a previously uploaded reference dataset. Anything not found → Fail.',
         configLabel: 'Source: Upload CSV File → select Reference dataset → Reference column → Match column',
-        tip: 'Upload a master "Hydrocarbon Types" CSV with one column of approved codes. The engine loads it as the reference set at run-time.',
+        tip: 'Upload a master "Trajectory Types" CSV with one column of approved codes. The engine loads it as the reference set at run-time.',
         table: {
           columns: ['WellboreName', 'TrajectoryShape'],
           checkCol: 'TrajectoryShape',
-          note: 'Reference CSV contains: Vertical, Deviated, Horizontal. GAMMA-7 has "S-Curve" (not in reference file) → fail.',
+          note: 'GAMMA-7 has "S-Curve" which is not found in the reference file column below → fail.',
+          listPreview: {
+            type: 'csv',
+            filename: 'trajectory_reference.csv',
+            column: 'TrajectoryType',
+            values: ['Vertical', 'Deviated', 'Horizontal'],
+          },
           rows: [
-            { cells: { WellboreName: 'ALPHA-1A',  TrajectoryShape: 'Vertical'   }, status: 'pass' },
-            { cells: { WellboreName: 'BETA-3B',   TrajectoryShape: 'Deviated'   }, status: 'pass' },
-            { cells: { WellboreName: 'GAMMA-7',   TrajectoryShape: 'S-Curve'    }, status: 'fail', reason: '"S-Curve" is not in the reference dataset column. Approved: Vertical, Deviated, Horizontal' },
-            { cells: { WellboreName: 'DELTA-2C',  TrajectoryShape: 'Horizontal' }, status: 'pass' },
+            { cells: { WellboreName: 'ALPHA-1A', TrajectoryShape: 'Vertical'   }, status: 'pass' },
+            { cells: { WellboreName: 'BETA-3B',  TrajectoryShape: 'Deviated'   }, status: 'pass' },
+            { cells: { WellboreName: 'GAMMA-7',  TrajectoryShape: 'S-Curve'    }, status: 'fail', reason: '"S-Curve" is not in the reference dataset column. Approved: Vertical, Deviated, Horizontal' },
+            { cells: { WellboreName: 'DELTA-2C', TrajectoryShape: 'Horizontal' }, status: 'pass' },
           ],
         },
       },
@@ -370,88 +404,176 @@ const DIMS: DimensionDef[] = [
   },
 ];
 
-// ─── Mini table component ──────────────────────────────────────────────────────
-function MiniSampleTable({
-  table, accent, hoveredRowKey, onHoverRow,
-}: {
-  table: MiniTable;
-  accent: string;
-  hoveredRowKey: number | null;
-  onHoverRow: (i: number | null) => void;
-}) {
-  const ac = ACCENT[accent];
+// ─── List preview panel ────────────────────────────────────────────────────────
+function ListPreviewPanel({ preview }: { preview: ListPreview }) {
+  if (preview.type === 'inline') {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 border-b border-slate-200">
+          <Tag className="w-3 h-3 text-slate-500" />
+          <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide">Inline allowed values</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 px-3 py-2">
+          {preview.values?.map((v) => (
+            <span key={v} className="px-2 py-0.5 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-[11px] font-medium">
+              {v}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // CSV reference
   return (
-    <div className="mt-3 rounded-lg overflow-hidden border border-slate-200">
-      <table className="w-full text-[11px] border-collapse">
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 border-b border-slate-200">
+        <FileText className="w-3 h-3 text-slate-500" />
+        <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide">Reference CSV</span>
+        <span className="ml-auto text-[10px] font-mono text-slate-500">{preview.filename}</span>
+      </div>
+      <table className="w-full text-[11px]">
         <thead>
           <tr>
-            {table.columns.map((col) => (
-              <th
-                key={col}
-                className={`px-2 py-1.5 text-left font-semibold border-b border-slate-200 whitespace-nowrap ${
-                  col === table.checkCol ? `${ac.lightBg} ${ac.text}` : 'bg-slate-50 text-slate-500'
-                }`}
-              >
-                {col === table.checkCol
-                  ? <span className="flex items-center gap-1">{col}<span className={`text-[8px] font-bold px-1 rounded ${ac.pill}`}>checking</span></span>
-                  : col}
-              </th>
-            ))}
-            <th className="px-2 py-1.5 text-left font-semibold border-b border-slate-200 bg-slate-50 text-slate-500">Status</th>
+            <th className="px-3 py-1 text-left font-semibold text-indigo-700 bg-indigo-50 border-b border-slate-200">
+              {preview.column}
+              <span className="ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded bg-indigo-100 text-indigo-700">reference col</span>
+            </th>
           </tr>
         </thead>
         <tbody>
-          {table.rows.map((row, i) => {
-            const isFail = row.status === 'fail';
-            const isHov = hoveredRowKey === i;
-            return (
-              <tr
-                key={i}
-                onMouseEnter={() => onHoverRow(i)}
-                onMouseLeave={() => onHoverRow(null)}
-                className={`cursor-default transition ${
-                  isFail ? (isHov ? 'bg-red-100' : 'bg-red-50') : (isHov ? 'bg-green-50' : 'bg-white')
-                }`}
-              >
-                {table.columns.map((col) => {
-                  const isChecked = col === table.checkCol;
-                  const val = row.cells[col] ?? '';
-                  return (
-                    <td
-                      key={col}
-                      className={`px-2 py-1.5 border-b border-slate-100 font-mono ${
-                        isChecked && isFail
-                          ? 'bg-red-100 text-red-700 font-bold'
-                          : isChecked
-                          ? `${ac.lightBg} ${ac.text}`
-                          : 'text-slate-700'
-                      }`}
-                    >
-                      {val || <span className="italic text-slate-300">(empty)</span>}
-                    </td>
-                  );
-                })}
-                <td className="px-2 py-1.5 border-b border-slate-100 whitespace-nowrap">
-                  {isFail
-                    ? <span className="flex items-center gap-1 text-red-600 font-semibold"><XCircle className="w-3 h-3" />Fail</span>
-                    : <span className="flex items-center gap-1 text-green-600 font-medium"><CheckCircle2 className="w-3 h-3" />Pass</span>}
-                </td>
-              </tr>
-            );
-          })}
+          {preview.values?.map((v, i) => (
+            <tr key={v} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+              <td className="px-3 py-1 font-mono text-slate-700 border-b border-slate-100">{v}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
-      {/* Inline hover reason */}
-      {hoveredRowKey !== null && table.rows[hoveredRowKey]?.status === 'fail' && table.rows[hoveredRowKey]?.reason && (
-        <div className="flex items-start gap-1.5 px-3 py-1.5 bg-red-50 border-t border-red-200 text-[11px] text-red-700">
-          <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Reason:</span> {table.rows[hoveredRowKey].reason}</span>
+    </div>
+  );
+}
+
+// ─── Mini table component ──────────────────────────────────────────────────────
+function MiniSampleTable({
+  table, hoveredRowKey, onHoverRow,
+}: {
+  table: MiniTable;
+  hoveredRowKey: number | null;
+  onHoverRow: (i: number | null) => void;
+}) {
+  const companions = new Set(table.companionCols ?? []);
+
+  return (
+    <div className="space-y-2">
+      {/* Column legend */}
+      <div className="flex items-center gap-3 text-[10px] text-slate-500">
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-sm bg-teal-100 border border-teal-300 inline-block" />
+          Checked column
+        </span>
+        {companions.size > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded-sm bg-indigo-100 border border-indigo-300 inline-block" />
+            Companion column
+          </span>
+        )}
+      </div>
+
+      {/* Optional list/reference panel */}
+      {table.listPreview && <ListPreviewPanel preview={table.listPreview} />}
+
+      {/* Sample table */}
+      <div className="rounded-lg overflow-hidden border border-slate-200">
+        <table className="w-full text-[11px] border-collapse">
+          <thead>
+            <tr>
+              {table.columns.map((col) => {
+                const isCheck = col === table.checkCol;
+                const isComp = companions.has(col);
+                return (
+                  <th
+                    key={col}
+                    className={`px-2 py-1.5 text-left font-semibold border-b border-slate-200 whitespace-nowrap ${
+                      isCheck
+                        ? 'bg-teal-50 text-teal-700'
+                        : isComp
+                        ? 'bg-indigo-50 text-indigo-700'
+                        : 'bg-slate-50 text-slate-500'
+                    }`}
+                  >
+                    {isCheck ? (
+                      <span className="flex items-center gap-1">
+                        {col}
+                        <span className="text-[8px] font-bold px-1 rounded bg-teal-100 text-teal-700">checking</span>
+                      </span>
+                    ) : isComp ? (
+                      <span className="flex items-center gap-1">
+                        {col}
+                        <span className="text-[8px] font-bold px-1 rounded bg-indigo-100 text-indigo-700">companion</span>
+                      </span>
+                    ) : col}
+                  </th>
+                );
+              })}
+              <th className="px-2 py-1.5 text-left font-semibold border-b border-slate-200 bg-slate-50 text-slate-500">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, i) => {
+              const isFail = row.status === 'fail';
+              const isHov = hoveredRowKey === i;
+              return (
+                <tr
+                  key={i}
+                  onMouseEnter={() => onHoverRow(i)}
+                  onMouseLeave={() => onHoverRow(null)}
+                  className={`cursor-default transition ${
+                    isFail ? (isHov ? 'bg-red-100' : 'bg-red-50') : (isHov ? 'bg-green-50' : 'bg-white')
+                  }`}
+                >
+                  {table.columns.map((col) => {
+                    const isCheck = col === table.checkCol;
+                    const isComp = companions.has(col);
+                    const val = row.cells[col] ?? '';
+                    return (
+                      <td
+                        key={col}
+                        className={`px-2 py-1.5 border-b border-slate-100 font-mono ${
+                          isCheck && isFail
+                            ? 'bg-red-100 text-red-700 font-bold'
+                            : isCheck
+                            ? 'bg-teal-50 text-teal-700'
+                            : isComp
+                            ? 'bg-indigo-50 text-indigo-700'
+                            : 'text-slate-700'
+                        }`}
+                      >
+                        {val || <span className="italic text-slate-300">(empty)</span>}
+                      </td>
+                    );
+                  })}
+                  <td className="px-2 py-1.5 border-b border-slate-100 whitespace-nowrap">
+                    {isFail
+                      ? <span className="flex items-center gap-1 text-red-600 font-semibold"><XCircle className="w-3 h-3" />Fail</span>
+                      : <span className="flex items-center gap-1 text-green-600 font-medium"><CheckCircle2 className="w-3 h-3" />Pass</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {/* Inline hover reason */}
+        {hoveredRowKey !== null && table.rows[hoveredRowKey]?.status === 'fail' && table.rows[hoveredRowKey]?.reason && (
+          <div className="flex items-start gap-1.5 px-3 py-1.5 bg-red-50 border-t border-red-200 text-[11px] text-red-700">
+            <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+            <span><span className="font-semibold">Reason:</span> {table.rows[hoveredRowKey].reason}</span>
+          </div>
+        )}
+        {/* Note */}
+        <div className="flex items-start gap-1.5 px-3 py-1.5 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-600">
+          <Info className="w-3 h-3 flex-shrink-0 mt-0.5" />
+          <span>{table.note}</span>
         </div>
-      )}
-      {/* Note */}
-      <div className={`flex items-start gap-1.5 px-3 py-1.5 ${ac.lightBg} border-t ${ac.border} text-[11px] ${ac.text}`}>
-        <Info className="w-3 h-3 flex-shrink-0 mt-0.5" />
-        <span>{table.note}</span>
       </div>
     </div>
   );
@@ -460,12 +582,14 @@ function MiniSampleTable({
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function GuidePage() {
   const [activeDim, setActiveDim] = useState('completeness');
-  const [hoveredRule, setHoveredRule] = useState<string | null>(null);
-  // Per-rule hover row: key = `${dimId}-${ruleName}`, value = row index
+  const [expandedRule, setExpandedRule] = useState<string | null>(null);
   const [hoveredRows, setHoveredRows] = useState<Record<string, number | null>>({});
 
   const dim = DIMS.find((d) => d.id === activeDim)!;
-  const ac = ACCENT[dim.accent];
+
+  function toggleRule(ruleKey: string) {
+    setExpandedRule((prev) => (prev === ruleKey ? null : ruleKey));
+  }
 
   function setHoveredRow(ruleKey: string, i: number | null) {
     setHoveredRows((prev) => ({ ...prev, [ruleKey]: i }));
@@ -484,7 +608,7 @@ export default function GuidePage() {
           <p className="text-sm text-slate-500 mt-0.5 max-w-2xl">
             Learn how each of the 4 quality dimensions works in{' '}
             <span className="font-semibold text-teal-700">Governance Plus</span>.
-            Hover a rule card to expand configuration steps and see its own sample table.
+            Click a rule card to expand its configuration steps and sample table.
             Hover table rows to reveal the exact fail reason. Sample data is fictional — it mirrors the OSDU wellbore schema.
           </p>
         </div>
@@ -495,21 +619,20 @@ export default function GuidePage() {
         {/* ── Sidebar ─────────────────────────────────────────────────────────── */}
         <div className="w-52 flex-shrink-0 space-y-1">
           {DIMS.map((d) => {
-            const a = ACCENT[d.accent];
             const active = activeDim === d.id;
             return (
               <button
                 key={d.id}
-                onClick={() => { setActiveDim(d.id); setHoveredRule(null); }}
+                onClick={() => { setActiveDim(d.id); setExpandedRule(null); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-sm font-medium transition-all ${
                   active
-                    ? `${a.lightBg} ${a.text} ${a.border} border shadow-sm`
+                    ? `${C.lightBg} ${C.text} ${C.border} border shadow-sm`
                     : 'text-slate-600 hover:bg-slate-100 border border-transparent'
                 }`}
               >
-                <span className={active ? a.text : 'text-slate-400'}>{d.icon}</span>
+                <span className={active ? 'text-teal-600' : 'text-slate-400'}>{d.icon}</span>
                 <span>{d.label}</span>
-                {active && <ChevronRight className={`w-3.5 h-3.5 ml-auto ${a.text}`} />}
+                {active && <ChevronRight className="w-3.5 h-3.5 ml-auto text-slate-500" />}
               </button>
             );
           })}
@@ -519,10 +642,10 @@ export default function GuidePage() {
         <div className="flex-1 min-w-0 space-y-4">
 
           {/* Overview */}
-          <div className={`rounded-xl border ${ac.border} ${ac.lightBg} p-5`}>
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="flex items-center gap-3 mb-2">
-              <span className={ac.text}>{dim.icon}</span>
-              <h2 className={`text-lg font-bold ${ac.text}`}>{dim.label}</h2>
+              <span className="text-teal-600">{dim.icon}</span>
+              <h2 className="text-lg font-bold text-slate-800">{dim.label}</h2>
             </div>
             <p className="text-slate-700 text-sm font-medium mb-1">{dim.summary}</p>
             <p className="text-slate-600 text-sm leading-relaxed">{dim.detail}</p>
@@ -532,56 +655,63 @@ export default function GuidePage() {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-slate-700">Rule types</span>
-              <span className="text-xs text-slate-400">— hover a card to expand its example</span>
+              <span className="text-xs text-slate-400">— click a card to expand its example</span>
             </div>
 
             {dim.rules.map((rule) => {
               const ruleKey = `${dim.id}-${rule.name}`;
-              const hovered = hoveredRule === ruleKey;
+              const expanded = expandedRule === ruleKey;
               return (
                 <div
                   key={ruleKey}
-                  onMouseEnter={() => setHoveredRule(ruleKey)}
-                  onMouseLeave={() => setHoveredRule(null)}
-                  className={`rounded-xl border transition-all duration-150 cursor-default select-none ${
-                    hovered
-                      ? `${ac.border} ${ac.lightBg} shadow-md`
-                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  className={`rounded-xl border transition-all duration-200 ${
+                    expanded
+                      ? 'border-slate-300 bg-slate-50 shadow-md'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                   }`}
                 >
-                  <div className="p-4">
-                    {/* Rule header */}
-                    <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <span className="text-sm font-semibold text-slate-800">{rule.name}</span>
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${ac.pill}`}>{rule.tag}</span>
-                    </div>
-                    <p className="text-sm text-slate-600 leading-relaxed">{rule.description}</p>
-
-                    {/* Expanded content on hover */}
-                    {hovered && (
-                      <div className="mt-3 space-y-2">
-                        {/* Config path */}
-                        <div className={`rounded-lg ${ac.lightBg} border ${ac.border} px-3 py-2`}>
-                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-0.5">Where to configure</p>
-                          <p className={`text-xs font-mono ${ac.text} leading-relaxed`}>{rule.configLabel}</p>
-                        </div>
-
-                        {/* Tip */}
-                        <div className="flex items-start gap-1.5 rounded-lg bg-yellow-50 border border-yellow-200 px-3 py-2">
-                          <Lightbulb className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                          <p className="text-xs text-yellow-800">{rule.tip}</p>
-                        </div>
-
-                        {/* Per-rule sample table */}
-                        <MiniSampleTable
-                          table={rule.table}
-                          accent={dim.accent}
-                          hoveredRowKey={hoveredRows[ruleKey] ?? null}
-                          onHoverRow={(i) => setHoveredRow(ruleKey, i)}
-                        />
+                  {/* Clickable header */}
+                  <button
+                    onClick={() => toggleRule(ruleKey)}
+                    className="w-full text-left p-4 flex items-start gap-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="text-sm font-semibold text-slate-800">{rule.name}</span>
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${C.pill}`}>{rule.tag}</span>
                       </div>
-                    )}
-                  </div>
+                      <p className="text-sm text-slate-600 leading-relaxed">{rule.description}</p>
+                    </div>
+                    <ChevronRight
+                      className={`w-4 h-4 flex-shrink-0 mt-0.5 transition-transform duration-200 ${
+                        expanded ? 'rotate-90 text-teal-600' : 'text-slate-400'
+                      }`}
+                    />
+                  </button>
+
+                  {/* Expanded content */}
+                  {expanded && (
+                    <div className="px-4 pb-4 space-y-2 border-t border-slate-200 pt-3">
+                      {/* Config path */}
+                      <div className="rounded-lg bg-slate-100 border border-slate-200 px-3 py-2">
+                        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-0.5">Where to configure</p>
+                        <p className="text-xs font-mono text-slate-700 leading-relaxed">{rule.configLabel}</p>
+                      </div>
+
+                      {/* Tip */}
+                      <div className="flex items-start gap-1.5 rounded-lg bg-yellow-50 border border-yellow-200 px-3 py-2">
+                        <Lightbulb className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-yellow-800">{rule.tip}</p>
+                      </div>
+
+                      {/* Per-rule sample table */}
+                      <MiniSampleTable
+                        table={rule.table}
+                        hoveredRowKey={hoveredRows[ruleKey] ?? null}
+                        onHoverRow={(i) => setHoveredRow(ruleKey, i)}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}

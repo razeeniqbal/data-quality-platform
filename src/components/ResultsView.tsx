@@ -13,11 +13,11 @@ interface ResultsViewProps {
   datasetName?: string;
   publishedBy?: string;
   initialResults?: QualityCheckResult[] | null;
-  /** All columns that were selected for quality checks — used for dataset trimming on publish */
+  /** All columns that were selected for quality checks — used for dataset trimming on save */
   selectedColumns?: string[];
   onBack: () => void;
   onPublished?: () => void;
-  /** When true, hides the Publish button (used when viewing a saved snapshot) */
+  /** When true, hides the Save button (used when viewing a saved result score) */
   readOnly?: boolean;
 }
 
@@ -27,12 +27,12 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
   const [filterStatus, setFilterStatus] = useState<'all' | 'pass' | 'fail'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Publish modal
-  const [showPublishModal, setShowPublishModal] = useState(false);
-  const [publishLabel, setPublishLabel] = useState('');
+  // Save Result Score modal
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveLabel, setSaveLabel] = useState('');
   const [trimDataset, setTrimDataset] = useState(false);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishedToast, setPublishedToast] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
   const [detailFilter, setDetailFilter] = useState<'all' | 'pass' | 'fail'>('all');
   const [detailSearch, setDetailSearch] = useState('');
@@ -104,16 +104,16 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
     URL.revokeObjectURL(url);
   }
 
-  async function handlePublish() {
-    const label = publishLabel.trim() || `Run ${new Date().toLocaleString('en-GB')}`;
-    setIsPublishing(true);
+  async function handleSave() {
+    const label = saveLabel.trim() || `Run ${new Date().toLocaleString('en-GB')}`;
+    setIsSaving(true);
     try {
       // Optionally trim dataset to selected columns
       if (trimDataset && selectedColumns && selectedColumns.length > 0) {
         await apiClient.trimDatasetColumns(datasetId, selectedColumns);
       }
 
-      await apiClient.publishQualitySnapshot(
+      await apiClient.saveQualityScore(
         datasetId,
         label,
         publishedBy ?? 'Unknown',
@@ -130,17 +130,17 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
           rowDetails: r.rowDetails ?? [],
         })),
       );
-      setShowPublishModal(false);
-      setPublishLabel('');
+      setShowSaveModal(false);
+      setSaveLabel('');
       setTrimDataset(false);
-      setPublishedToast(true);
-      setTimeout(() => setPublishedToast(false), 3500);
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 3500);
       onPublished?.();
     } catch (err) {
-      console.error('Publish failed:', err);
-      alert('Failed to publish. Please try again.');
+      console.error('Save result score failed:', err);
+      alert('Failed to save result score. Please try again.');
     } finally {
-      setIsPublishing(false);
+      setIsSaving(false);
     }
   }
 
@@ -186,40 +186,40 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
   return (
     <div className="space-y-6">
       {/* Published toast */}
-      {publishedToast && (
+      {savedToast && (
         <div className="fixed top-5 right-5 z-50 flex items-center gap-2 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-xl animate-fade-in">
           <CheckCircle className="w-5 h-5 flex-shrink-0" />
-          <span className="text-sm font-medium">Results published successfully</span>
+          <span className="text-sm font-medium">Result score saved successfully</span>
         </div>
       )}
 
       {/* Publish modal */}
-      {showPublishModal && (
+      {showSaveModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4">
             <div className="flex items-center justify-between p-5 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <BookMarked className="w-5 h-5 text-teal-600" />
-                <h2 className="text-base font-bold text-slate-800">Publish Results</h2>
+                <h2 className="text-base font-bold text-slate-800">Save Result Score</h2>
               </div>
-              <button onClick={() => setShowPublishModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition">
+              <button onClick={() => setShowSaveModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition">
                 <X className="w-4 h-4 text-slate-500" />
               </button>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-slate-500">
-                Save a named snapshot of this quality run. All project members can view published results.
+                Save a named quality result score for this run. All project members can view saved result scores.
               </p>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">
-                  Snapshot Label <span className="text-slate-400 font-normal">(optional)</span>
+                  Result Score Label <span className="text-slate-400 font-normal">(optional)</span>
                 </label>
                 <input
                   type="text"
-                  value={publishLabel}
-                  onChange={e => setPublishLabel(e.target.value)}
+                  value={saveLabel}
+                  onChange={e => setSaveLabel(e.target.value)}
                   placeholder={`e.g. Sprint 12 – ${datasetName ?? 'Dataset'}`}
-                  onKeyDown={e => e.key === 'Enter' && handlePublish()}
+                  onKeyDown={e => e.key === 'Enter' && handleSave()}
                   autoFocus
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none"
                 />
@@ -261,19 +261,19 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
             </div>
             <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200">
               <button
-                onClick={() => setShowPublishModal(false)}
+                onClick={() => setShowSaveModal(false)}
                 className="px-4 py-2 text-sm text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition font-medium"
               >
                 Cancel
               </button>
               <button
-                onClick={handlePublish}
-                disabled={isPublishing}
+                onClick={handleSave}
+                disabled={isSaving}
                 className="flex items-center gap-2 px-4 py-2 text-sm bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition font-medium disabled:opacity-50"
               >
-                {isPublishing
-                  ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Publishing...</span></>
-                  : <><BookMarked className="w-4 h-4" /><span>Publish</span></>}
+                {isSaving
+                  ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Saving...</span></>
+                  : <><BookMarked className="w-4 h-4" /><span>Save</span></>}
               </button>
             </div>
           </div>
@@ -287,7 +287,7 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
           className="flex items-center space-x-2 text-slate-600 hover:text-slate-800 transition"
         >
           <ArrowLeft className="w-5 h-5" />
-          <span>{readOnly ? 'Back to Snapshots' : 'Back to Configuration'}</span>
+          <span>{readOnly ? 'Back to Result Scores' : 'Back to Configuration'}</span>
         </button>
         <div className="flex items-center space-x-4">
           <button
@@ -299,11 +299,11 @@ export default function ResultsView({ datasetId, datasetName, publishedBy, initi
           </button>
           {!readOnly && (
             <button
-              onClick={() => setShowPublishModal(true)}
+              onClick={() => setShowSaveModal(true)}
               className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg hover:from-teal-700 hover:to-emerald-700 transition font-medium"
             >
               <BookMarked className="w-4 h-4" />
-              <span>Publish</span>
+              <span>Save Result Score</span>
             </button>
           )}
         </div>

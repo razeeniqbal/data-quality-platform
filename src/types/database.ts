@@ -62,13 +62,24 @@ export interface AppUser {
   last_seen_at: string;
 }
 
-export interface QualitySnapshot {
+export interface QualityScoreRowDetail {
+  rowIndex: number;
+  value: unknown;
+  passed: boolean;
+  reason?: string;
+}
+
+export interface QualityScoreResult extends QualityResult {
+  rowDetails?: QualityScoreRowDetail[];
+}
+
+export interface QualityScore {
   id: string;
   dataset_id: string;
   label: string;
   published_by: string | null;
   overall_score: number;
-  results: QualityResult[];
+  results: QualityScoreResult[];
   published_at: string;
 }
 

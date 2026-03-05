@@ -5,7 +5,7 @@ import QualityConfiguration from '../components/QualityConfiguration';
 import ResultsView from '../components/ResultsView';
 import { apiClient } from '../lib/api-client';
 import type { QualityCheckResult } from '../components/QualityConfiguration';
-import type { QualitySnapshot } from '../types/database';
+import type { QualityScore } from '../types/database';
 import { useUser } from '../contexts/UserContext';
 import { FileText, ChevronDown, BookMarked, Trash2, BarChart2, Eye } from 'lucide-react';
 
@@ -26,7 +26,7 @@ interface Dataset {
 interface ScoreProps {
   projectId?: string | null;
   onDatasetCreated?: (datasetId: string) => void;
-  /** viewer role — can only see snapshots, not run checks */
+  /** viewer role — can only see result scores, not run checks */
   isViewer?: boolean;
   /** pre-select this dataset when the tab loads (e.g. synced from Records tab) */
   initialDatasetId?: string | null;
@@ -45,13 +45,13 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
 
-  // Snapshots
-  const [snapshots, setSnapshots] = useState<QualitySnapshot[]>([]);
-  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
-  const [deletingSnapshotId, setDeletingSnapshotId] = useState<string | null>(null);
-  // Snapshot being viewed (read-only results mode)
-  const [viewingSnapshot, setViewingSnapshot] = useState<QualitySnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  // Quality Result Scores
+  const [qualityScores, setQualityScores] = useState<QualityScore[]>([]);
+  const [qualityScoresLoading, setQualityScoresLoading] = useState(false);
+  const [deletingScoreId, setDeletingScoreId] = useState<string | null>(null);
+  // Result Score being viewed (read-only results mode)
+  const [viewingScore, setViewingScore] = useState<QualityScore | null>(null);
+  const [scoreLoading, setScoreLoading] = useState(false);
 
   useEffect(() => {
     if (projectId) {
@@ -73,29 +73,29 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
     if (!isViewer) {
       loadDatasetForScoring(selectedDatasetId);
     } else {
-      // Viewers only need the datasetId set so snapshots load
+      // Viewers only need the datasetId set so result scores load
       setDatasetId(selectedDatasetId);
       setLoading(false);
     }
   }, [selectedDatasetId, isViewer]);
 
-  // Load snapshots whenever the active dataset changes
-  const loadSnapshots = useCallback(async (dsId: string) => {
-    setSnapshotsLoading(true);
+  // Load result scores whenever the active dataset changes
+  const loadQualityScores = useCallback(async (dsId: string) => {
+    setQualityScoresLoading(true);
     try {
-      const data = await apiClient.getQualitySnapshots(dsId) as QualitySnapshot[];
-      setSnapshots(data || []);
+      const data = await apiClient.getQualityScores(dsId) as QualityScore[];
+      setQualityScores(data || []);
     } catch (err) {
-      console.error('Error loading snapshots:', err);
+      console.error('Error loading quality result scores:', err);
     } finally {
-      setSnapshotsLoading(false);
+      setQualityScoresLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (datasetId) loadSnapshots(datasetId);
-    else setSnapshots([]);
-  }, [datasetId, loadSnapshots]);
+    if (datasetId) loadQualityScores(datasetId);
+    else setQualityScores([]);
+  }, [datasetId, loadQualityScores]);
 
   async function loadDatasets(projId: string) {
     setLoading(true);
@@ -123,7 +123,7 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
     setUploadedData(null);
     setDatasetId(null);
     setExecutionResults(null);
-    setViewingSnapshot(null);
+    setViewingScore(null);
     try {
       const rows = await apiClient.previewDataset(dsId, 10000) as Record<string, string>[];
 
@@ -160,7 +160,7 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
 
   async function handleDatasetChange(dsId: string) {
     setSelectedDatasetId(dsId);
-    setViewingSnapshot(null);
+    setViewingScore(null);
     if (!isViewer) {
       setCurrentStep('configure');
       setExecutionResults(null);
@@ -180,31 +180,31 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
     setCurrentStep('results');
   }
 
-  async function handleDeleteSnapshot(snapshotId: string) {
-    if (!window.confirm('Delete this snapshot? This cannot be undone.')) return;
-    setDeletingSnapshotId(snapshotId);
+  async function handleDeleteScore(scoreId: string) {
+    if (!window.confirm('Delete this result score? This cannot be undone.')) return;
+    setDeletingScoreId(scoreId);
     try {
-      await apiClient.deleteQualitySnapshot(snapshotId);
-      setSnapshots(prev => prev.filter(s => s.id !== snapshotId));
-      if (viewingSnapshot?.id === snapshotId) setViewingSnapshot(null);
+      await apiClient.deleteQualityScore(scoreId);
+      setQualityScores(prev => prev.filter(s => s.id !== scoreId));
+      if (viewingScore?.id === scoreId) setViewingScore(null);
     } catch (err) {
-      console.error('Failed to delete snapshot:', err);
-      alert('Failed to delete snapshot. Please try again.');
+      console.error('Failed to delete result score:', err);
+      alert('Failed to delete result score. Please try again.');
     } finally {
-      setDeletingSnapshotId(null);
+      setDeletingScoreId(null);
     }
   }
 
-  async function handleViewSnapshot(snap: QualitySnapshot) {
-    setSnapshotLoading(true);
+  async function handleViewScore(score: QualityScore) {
+    setScoreLoading(true);
     try {
-      const full = await apiClient.getQualitySnapshot(snap.id) as QualitySnapshot;
-      setViewingSnapshot(full);
+      const full = await apiClient.getQualityScore(score.id) as QualityScore;
+      setViewingScore(full);
     } catch (err) {
-      console.error('Failed to load snapshot:', err);
-      alert('Failed to load snapshot details.');
+      console.error('Failed to load result score:', err);
+      alert('Failed to load result score details.');
     } finally {
-      setSnapshotLoading(false);
+      setScoreLoading(false);
     }
   }
 
@@ -220,7 +220,7 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
 
   return (
     <div className="space-y-4">
-      {/* Dataset selector + snapshot list */}
+      {/* Dataset selector + quality result scores list */}
       {projectId && datasets.length > 0 && (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           {/* Dropdown row */}
@@ -252,63 +252,63 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
             </div>
           </div>
 
-          {/* Published Snapshots — inside the same card, below dropdown */}
+          {/* Quality Result Scores — inside the same card, below dropdown */}
           <div>
             <div className="px-6 py-3 flex items-center gap-2 border-b border-slate-100 bg-slate-50">
               <BookMarked className="w-4 h-4 text-teal-600" />
-              <span className="text-sm font-semibold text-slate-700">Published Snapshots</span>
-              {snapshots.length > 0 && (
+              <span className="text-sm font-semibold text-slate-700">Quality Result Scores</span>
+              {qualityScores.length > 0 && (
                 <span className="text-xs bg-teal-100 text-teal-700 font-semibold px-2 py-0.5 rounded-full">
-                  {snapshots.length}
+                  {qualityScores.length}
                 </span>
               )}
             </div>
 
-            {snapshotsLoading ? (
+            {qualityScoresLoading ? (
               <div className="px-6 py-6 text-center text-slate-400 text-sm">
                 <div className="animate-spin w-5 h-5 border-2 border-teal-500 border-t-transparent rounded-full mx-auto mb-2" />
-                Loading snapshots...
+                Loading result scores...
               </div>
-            ) : snapshots.length === 0 ? (
+            ) : qualityScores.length === 0 ? (
               <div className="px-6 py-6 text-center text-slate-400">
-                <p className="text-sm font-medium">No published snapshots yet</p>
+                <p className="text-sm font-medium">No result scores saved yet</p>
                 {!isViewer && (
-                  <p className="text-xs mt-1">Run a quality check and click Publish to save a snapshot.</p>
+                  <p className="text-xs mt-1">Run a quality check and click Save to record a result score.</p>
                 )}
               </div>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {snapshots.map((snap) => {
-                  const date = new Date(snap.published_at).toLocaleString('en-GB', {
+                {qualityScores.map((score) => {
+                  const date = new Date(score.published_at).toLocaleString('en-GB', {
                     day: '2-digit', month: 'short', year: 'numeric',
                     hour: '2-digit', minute: '2-digit',
                   });
-                  const isViewing = viewingSnapshot?.id === snap.id;
+                  const isViewing = viewingScore?.id === score.id;
                   return (
                     <li
-                      key={snap.id}
+                      key={score.id}
                       className={`flex items-center gap-3 px-6 py-3.5 transition group cursor-pointer ${isViewing ? 'bg-teal-50' : 'hover:bg-slate-50'}`}
-                      onClick={() => handleViewSnapshot(snap)}
+                      onClick={() => handleViewScore(score)}
                     >
                       <BarChart2 className={`w-4 h-4 flex-shrink-0 ${isViewing ? 'text-teal-600' : 'text-teal-400'}`} />
                       <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold truncate ${isViewing ? 'text-teal-700' : 'text-slate-800'}`}>{snap.label}</p>
+                        <p className={`text-sm font-semibold truncate ${isViewing ? 'text-teal-700' : 'text-slate-800'}`}>{score.label}</p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          {date}{snap.published_by ? ` · by ${snap.published_by}` : ''}
+                          {date}{score.published_by ? ` · by ${score.published_by}` : ''}
                         </p>
                       </div>
-                      <span className={`text-sm font-bold flex-shrink-0 ${scoreColor(snap.overall_score)}`}>
-                        {snap.overall_score.toFixed(1)}%
+                      <span className={`text-sm font-bold flex-shrink-0 ${scoreColor(score.overall_score)}`}>
+                        {score.overall_score.toFixed(1)}%
                       </span>
                       <Eye className={`w-4 h-4 flex-shrink-0 transition ${isViewing ? 'text-teal-600' : 'text-slate-300 group-hover:text-teal-500'}`} />
                       {!isViewer && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteSnapshot(snap.id); }}
-                          disabled={deletingSnapshotId === snap.id}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteScore(score.id); }}
+                          disabled={deletingScoreId === score.id}
                           className="flex-shrink-0 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                          title="Delete snapshot"
+                          title="Delete result score"
                         >
-                          {deletingSnapshotId === snap.id
+                          {deletingScoreId === score.id
                             ? <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
                             : <Trash2 className="w-3.5 h-3.5" />
                           }
@@ -323,27 +323,27 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
         </div>
       )}
 
-      {/* Snapshot viewer — read-only ResultsView from a saved snapshot */}
-      {viewingSnapshot && (
+      {/* Result Score viewer — read-only ResultsView */}
+      {viewingScore && (
         <ResultsView
-          datasetId={viewingSnapshot.dataset_id}
+          datasetId={viewingScore.dataset_id}
           datasetName={selectedDataset?.name}
-          initialResults={viewingSnapshot.results as unknown as QualityCheckResult[]}
-          onBack={() => setViewingSnapshot(null)}
+          initialResults={viewingScore.results as unknown as QualityCheckResult[]}
+          onBack={() => setViewingScore(null)}
           readOnly
         />
       )}
 
-      {/* Snapshot loading spinner */}
-      {snapshotLoading && (
+      {/* Result Score loading spinner */}
+      {scoreLoading && (
         <div className="text-center py-10 bg-white rounded-lg shadow-md">
           <div className="animate-spin w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full mx-auto mb-3" />
-          <p className="text-slate-500 text-sm">Loading snapshot...</p>
+          <p className="text-slate-500 text-sm">Loading result score...</p>
         </div>
       )}
 
-      {/* Step content — hidden for viewers and when viewing a snapshot */}
-      {!isViewer && !viewingSnapshot && (
+      {/* Step content — hidden for viewers and when viewing a result score */}
+      {!isViewer && !viewingScore && (
         <>
           {loading && (
             <div className="text-center py-20 bg-white rounded-lg shadow-md">
@@ -387,7 +387,7 @@ export default function Score({ projectId, onDatasetCreated, isViewer = false, i
                   })()
                 : undefined}
               onBack={() => setCurrentStep('configure')}
-              onPublished={() => loadSnapshots(datasetId)}
+              onPublished={() => loadQualityScores(datasetId)}
             />
           )}
         </>

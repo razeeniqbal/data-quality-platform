@@ -217,11 +217,26 @@ class ApiClient {
     return {};
   }
 
+  // ── Private helper: batch-insert rows into dataset_rows ─────────────────────
+  private async insertRowsBatched(datasetId: string, rows: Record<string, string>[]) {
+    const BATCH = 500;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH).map((data, j) => ({
+        dataset_id: datasetId,
+        row_index: i + j,
+        data,
+      }));
+      const { error } = await supabase.from('dataset_rows').insert(batch);
+      if (error) throw new Error(error.message);
+    }
+  }
+
   // Datasets
   async getProjectDatasets(projectId: string) {
     const { data, error } = await supabase
       .from('datasets')
-      .select('*')
+      // Exclude file_data — it can be huge and is not needed for the project list
+      .select('id, project_id, name, description, row_count, column_count, storage_mode, created_at, updated_at')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false });
 
@@ -256,7 +271,7 @@ class ApiClient {
         description: description?.trim() || null,
         row_count: rows.length,
         column_count: headers.length,
-        file_data: rows,
+        storage_mode: 'rows',
       })
       .select()
       .single();
@@ -265,6 +280,8 @@ class ApiClient {
       logger.error('Failed to upload dataset', new Error(error.message), { fileName: file.name, projectId });
       throw new Error(error.message);
     }
+
+    await this.insertRowsBatched(data.id, rows);
 
     logger.info('Dataset uploaded', { fileName: file.name, projectId, datasetId: data.id });
     return data;
@@ -283,7 +300,7 @@ class ApiClient {
         name: name.trim(),
         row_count: rows.length,
         column_count: headers.length,
-        file_data: rows,
+        storage_mode: 'rows',
       })
       .select()
       .single();
@@ -292,6 +309,8 @@ class ApiClient {
       logger.error('Failed to create dataset from rows', new Error(error.message), { projectId, name });
       throw new Error(error.message);
     }
+
+    await this.insertRowsBatched(data.id, rows);
 
     logger.info('Dataset created from rows', { projectId, name, datasetId: data.id });
     return data;
@@ -343,20 +362,55 @@ class ApiClient {
     return {};
   }
 
-  async previewDataset(datasetId: string, limit: number = 100) {
-    const { data, error } = await supabase
+  async previewDataset(datasetId: string, limit: number = 100, offset: number = 0) {
+    // Check storage mode first
+    const { data: ds, error: dsError } = await supabase
       .from('datasets')
-      .select('file_data')
+      .select('storage_mode, file_data')
       .eq('id', datasetId)
       .single();
 
-    if (error) {
-      logger.error('Failed to preview dataset', new Error(error.message), { datasetId });
-      throw new Error(error.message);
+    if (dsError) {
+      logger.error('Failed to preview dataset', new Error(dsError.message), { datasetId });
+      throw new Error(dsError.message);
     }
 
-    const rows = (data.file_data as Record<string, string>[]) || [];
-    return rows.slice(0, limit);
+    if (ds.storage_mode === 'rows') {
+      // Supabase PostgREST caps a single request at 1000 rows.
+      // Loop in pages of 1000 until we have all requested rows.
+      const PAGE = 1000;
+      const allRows: Record<string, string>[] = [];
+      let cursor = offset;
+      const target = offset + limit;
+
+      while (cursor < target) {
+        const pageEnd = Math.min(cursor + PAGE, target) - 1;
+        const { data, error } = await supabase
+          .from('dataset_rows')
+          .select('data')
+          .eq('dataset_id', datasetId)
+          .order('row_index', { ascending: true })
+          .range(cursor, pageEnd);
+
+        if (error) {
+          logger.error('Failed to preview dataset rows', new Error(error.message), { datasetId });
+          throw new Error(error.message);
+        }
+
+        const page = (data ?? []).map(r => r.data as Record<string, string>);
+        allRows.push(...page);
+
+        // If Supabase returned fewer rows than requested, we've hit the end of the table
+        if (page.length < pageEnd - cursor + 1) break;
+        cursor += PAGE;
+      }
+
+      return allRows;
+    }
+
+    // Fallback: legacy jsonb datasets
+    const rows = (ds.file_data as Record<string, string>[]) || [];
+    return rows.slice(offset, offset + limit);
   }
 
   // Quality Dimensions
@@ -560,57 +614,131 @@ class ApiClient {
     return data;
   }
 
-  /** Rewrite file_data keeping only the specified columns, and updates column_count */
+  /** Keep only specified columns in a dataset, updates column_count */
   async trimDatasetColumns(datasetId: string, keepColumns: string[]) {
-    // Fetch full data
     const { data: ds, error: fetchError } = await supabase
       .from('datasets')
-      .select('file_data')
+      .select('storage_mode, file_data, row_count')
       .eq('id', datasetId)
       .single();
     if (fetchError) throw new Error(fetchError.message);
 
-    const rows = (ds.file_data as Record<string, string>[]) || [];
-    const trimmed = rows.map(row => {
-      const out: Record<string, string> = {};
-      keepColumns.forEach(col => { if (col in row) out[col] = row[col]; });
-      return out;
-    });
+    if (ds.storage_mode === 'rows') {
+      // Read rows in pages, rewrite keeping only selected columns.
+      // Each row is updated individually — Supabase JS SDK does not support
+      // bulk conditional updates, so we batch fetches but update per-row.
+      const PAGE = 1000;
+      const totalRows = (ds.row_count as number) || 0;
+      const keepSet = new Set(keepColumns);
 
-    const { error: updateError } = await supabase
-      .from('datasets')
-      .update({ file_data: trimmed, column_count: keepColumns.length })
-      .eq('id', datasetId);
-    if (updateError) throw new Error(updateError.message);
+      for (let offset = 0; offset < totalRows; offset += PAGE) {
+        const { data: pageData, error: pageError } = await supabase
+          .from('dataset_rows')
+          .select('id, data')
+          .eq('dataset_id', datasetId)
+          .order('row_index', { ascending: true })
+          .range(offset, offset + PAGE - 1);
+        if (pageError) throw new Error(pageError.message);
+
+        // Build upsert payload with trimmed data for the whole page
+        const upsertPayload = (pageData ?? []).map(r => {
+          const trimmed: Record<string, string> = {};
+          for (const col of keepSet) {
+            if (col in (r.data as object)) trimmed[col] = (r.data as Record<string, string>)[col];
+          }
+          return { id: r.id, data: trimmed };
+        });
+
+        // Upsert the page in one request (matches on primary key `id`)
+        const { error: upsertError } = await supabase
+          .from('dataset_rows')
+          .upsert(upsertPayload, { onConflict: 'id' });
+        if (upsertError) throw new Error(upsertError.message);
+      }
+
+      const { error: updateError } = await supabase
+        .from('datasets')
+        .update({ column_count: keepColumns.length })
+        .eq('id', datasetId);
+      if (updateError) throw new Error(updateError.message);
+    } else {
+      // Legacy jsonb path
+      const rows = (ds.file_data as Record<string, string>[]) || [];
+      const trimmed = rows.map(row => {
+        const out: Record<string, string> = {};
+        keepColumns.forEach(col => { if (col in row) out[col] = row[col]; });
+        return out;
+      });
+      const { error: updateError } = await supabase
+        .from('datasets')
+        .update({ file_data: trimmed, column_count: keepColumns.length })
+        .eq('id', datasetId);
+      if (updateError) throw new Error(updateError.message);
+    }
   }
 
-  // Quality Snapshots
-  async publishQualitySnapshot(
+  // Quality Result Scores
+  async saveQualityScore(
     datasetId: string,
     label: string,
     publishedBy: string,
     overallScore: number,
     results: Array<Record<string, unknown>>,
   ) {
+    // Strip rowDetails from the summary stored in quality_result_scores
+    const summaryResults = results.map(r => ({
+      id:           r.id,
+      column_name:  r.column_name,
+      dimension:    r.dimension,
+      passed_count: r.passed_count,
+      failed_count: r.failed_count,
+      total_count:  r.total_count,
+      score:        r.score,
+      executed_at:  r.executed_at,
+    }));
+
     const { data, error } = await supabase
-      .from('quality_snapshots')
+      .from('quality_result_scores')
       .insert({
-        dataset_id: datasetId,
+        dataset_id:    datasetId,
         label,
-        published_by: publishedBy,
+        published_by:  publishedBy,
         overall_score: overallScore,
-        results,
-        published_at: new Date().toISOString(),
+        results:       summaryResults,
+        published_at:  new Date().toISOString(),
       })
       .select()
       .single();
     if (error) throw new Error(error.message);
+
+    const scoreId = data.id as string;
+
+    // Insert per-row details into result_score_rows in batches of 500
+    const BATCH = 500;
+    for (const r of results) {
+      const rowDetails = (r.rowDetails as Array<{ rowIndex: number; value: unknown; passed: boolean; reason?: string }>) ?? [];
+      if (rowDetails.length === 0) continue;
+      const resultKey = `${r.column_name}:${r.dimension}`;
+      for (let i = 0; i < rowDetails.length; i += BATCH) {
+        const batch = rowDetails.slice(i, i + BATCH).map(d => ({
+          score_id:   scoreId,
+          result_key: resultKey,
+          row_index:  d.rowIndex,
+          value:      d.value !== null && d.value !== undefined ? String(d.value) : null,
+          passed:     d.passed,
+          reason:     d.reason ?? null,
+        }));
+        const { error: rowErr } = await supabase.from('result_score_rows').insert(batch);
+        if (rowErr) throw new Error(rowErr.message);
+      }
+    }
+
     return data;
   }
 
-  async getQualitySnapshots(datasetId: string) {
+  async getQualityScores(datasetId: string) {
     const { data, error } = await supabase
-      .from('quality_snapshots')
+      .from('quality_result_scores')
       .select('id, dataset_id, label, published_by, overall_score, published_at')
       .eq('dataset_id', datasetId)
       .order('published_at', { ascending: false });
@@ -618,21 +746,50 @@ class ApiClient {
     return data;
   }
 
-  async getQualitySnapshot(snapshotId: string) {
+  async getQualityScore(scoreId: string) {
+    // Fetch the result score summary (no rowDetails in this column anymore)
     const { data, error } = await supabase
-      .from('quality_snapshots')
-      .select('*')
-      .eq('id', snapshotId)
+      .from('quality_result_scores')
+      .select('id, dataset_id, label, published_by, overall_score, results, published_at')
+      .eq('id', scoreId)
       .single();
     if (error) throw new Error(error.message);
-    return data;
+
+    // Fetch per-row details from the separate table
+    const { data: rowData, error: rowError } = await supabase
+      .from('result_score_rows')
+      .select('result_key, row_index, value, passed, reason')
+      .eq('score_id', scoreId)
+      .order('result_key', { ascending: true })
+      .order('row_index', { ascending: true });
+    if (rowError) throw new Error(rowError.message);
+
+    // Group row details back onto each result entry
+    const detailsByKey: Record<string, Array<{ rowIndex: number; value: unknown; passed: boolean; reason?: string }>> = {};
+    for (const row of rowData ?? []) {
+      if (!detailsByKey[row.result_key]) detailsByKey[row.result_key] = [];
+      detailsByKey[row.result_key].push({
+        rowIndex: row.row_index,
+        value:    row.value,
+        passed:   row.passed,
+        reason:   row.reason ?? undefined,
+      });
+    }
+
+    const resultsWithDetails = ((data.results as Array<Record<string, unknown>>) ?? []).map(r => ({
+      ...r,
+      rowDetails: detailsByKey[`${r.column_name}:${r.dimension}`] ?? [],
+    }));
+
+    return { ...data, results: resultsWithDetails };
   }
 
-  async deleteQualitySnapshot(snapshotId: string) {
+  async deleteQualityScore(scoreId: string) {
+    // result_score_rows are deleted automatically via ON DELETE CASCADE
     const { error } = await supabase
-      .from('quality_snapshots')
+      .from('quality_result_scores')
       .delete()
-      .eq('id', snapshotId);
+      .eq('id', scoreId);
     if (error) throw new Error(error.message);
   }
 
